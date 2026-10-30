@@ -16,6 +16,7 @@ Rule constraint:
 from typing import Any
 from backend.db import get_conn
 from backend.services.impact import analyze_impact
+from backend.services.ai import generate_ai_summary
 
 
 def detect_late_shipments(target_shipment_id: int | None = None) -> list[int]:
@@ -221,8 +222,10 @@ def run_detection(shipment_id: int | None = None) -> list[int]:
     for did in detect_stock_shortages():
         created_disruptions.add(did)
 
-    # Run impact analysis on all active disruptions
+    # Run impact analysis and AI summary generation on all active disruptions
     for did in created_disruptions:
         analyze_impact(did)
+        generate_ai_summary(did)
 
     return list(created_disruptions)
+

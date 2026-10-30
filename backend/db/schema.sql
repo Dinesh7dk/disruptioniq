@@ -129,6 +129,8 @@ CREATE TABLE IF NOT EXISTS disruptions (
     warehouse_id INTEGER REFERENCES warehouses(id) ON DELETE SET NULL,
     product_id   INTEGER REFERENCES products(id)   ON DELETE SET NULL,
     description  TEXT,
+    ai_summary   TEXT,
+    ai_source    TEXT,
     detected_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     resolved_at  TEXT,
     created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL
