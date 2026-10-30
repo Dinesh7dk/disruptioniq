@@ -78,19 +78,19 @@ def get_db_snapshot():
     conn = get_conn()
     try:
         tables = [
-            "inventory",
-            "orders",
-            "order_lines",
-            "shipments",
-            "disruptions",
-            "disruption_impacts",
-            "recovery_plans",
-            "audit_logs",
-            "notifications",
+            ("inventory", "SELECT COUNT(*) as c FROM inventory"),
+            ("orders", "SELECT COUNT(*) as c FROM orders"),
+            ("order_lines", "SELECT COUNT(*) as c FROM order_lines"),
+            ("shipments", "SELECT COUNT(*) as c FROM shipments"),
+            ("disruptions", "SELECT COUNT(*) as c FROM disruptions"),
+            ("disruption_impacts", "SELECT COUNT(*) as c FROM disruption_impacts"),
+            ("recovery_plans", "SELECT COUNT(*) as c FROM recovery_plans"),
+            ("audit_logs", "SELECT COUNT(*) as c FROM audit_logs"),
+            ("notifications", "SELECT COUNT(*) as c FROM notifications"),
         ]
         counts = {}
-        for tbl in tables:
-            r = conn.execute(f"SELECT COUNT(*) as c FROM {tbl}").fetchone()
+        for tbl, count_sql in tables:
+            r = conn.execute(count_sql).fetchone()
             counts[tbl] = r["c"]
 
         inv_rows = conn.execute(

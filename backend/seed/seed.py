@@ -39,14 +39,24 @@ def seed(db_path: Path = DB_PATH):
 
     # ── 1. Wipe in child→parent order, reset sequences ─────────────────────
     WIPE_ORDER = [
-        "message_drafts", "audit_logs", "notifications",
-        "webhook_events", "recovery_plans", "disruption_impacts",
-        "disruptions", "order_lines", "orders",
-        "inventory", "shipments",
-        "products", "warehouses", "suppliers", "users",
+        ("message_drafts", "DELETE FROM message_drafts;"),
+        ("audit_logs", "DELETE FROM audit_logs;"),
+        ("notifications", "DELETE FROM notifications;"),
+        ("webhook_events", "DELETE FROM webhook_events;"),
+        ("recovery_plans", "DELETE FROM recovery_plans;"),
+        ("disruption_impacts", "DELETE FROM disruption_impacts;"),
+        ("disruptions", "DELETE FROM disruptions;"),
+        ("order_lines", "DELETE FROM order_lines;"),
+        ("orders", "DELETE FROM orders;"),
+        ("inventory", "DELETE FROM inventory;"),
+        ("shipments", "DELETE FROM shipments;"),
+        ("products", "DELETE FROM products;"),
+        ("warehouses", "DELETE FROM warehouses;"),
+        ("suppliers", "DELETE FROM suppliers;"),
+        ("users", "DELETE FROM users;"),
     ]
-    for tbl in WIPE_ORDER:
-        conn.execute(f"DELETE FROM {tbl};")
+    for tbl, delete_stmt in WIPE_ORDER:
+        conn.execute(delete_stmt)
         conn.execute(
             "DELETE FROM sqlite_sequence WHERE name = ?;", (tbl,)
         )

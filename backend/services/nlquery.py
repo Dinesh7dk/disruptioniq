@@ -345,28 +345,29 @@ def query_orders_by_filter(filter_obj: OrderFilter) -> list[dict[str, Any]]:
             return []
 
         # Fetch lines for each order
-        order_ids = [r["id"] for r in rows]
-        placeholders = ",".join("?" for _ in order_ids)
-        lines_rows = cur.execute(
-            f"""SELECT ol.order_id, p.code AS product_code, p.name AS product_name,
-                      ol.quantity, ol.fulfilled, w.city AS warehouse_city
-               FROM order_lines ol
-               JOIN products p ON p.id = ol.product_id
-               JOIN warehouses w ON w.id = ol.warehouse_id
-               WHERE ol.order_id IN ({placeholders})
-               ORDER BY ol.id ASC""",
-            order_ids,
-        ).fetchall()
-
         lines_by_order: dict[int, list] = {}
-        for l in lines_rows:
-            lines_by_order.setdefault(l["order_id"], []).append({
-                "product_code": l["product_code"],
-                "product_name": l["product_name"],
-                "quantity": l["quantity"],
-                "fulfilled": l["fulfilled"],
-                "warehouse_city": l["warehouse_city"],
-            })
+        fetch_lines_sql = """
+            SELECT ol.order_id, p.code AS product_code, p.name AS product_name,
+                   ol.quantity, ol.fulfilled, w.city AS warehouse_city
+            FROM order_lines ol
+            JOIN products p ON p.id = ol.product_id
+            JOIN warehouses w ON w.id = ol.warehouse_id
+            WHERE ol.order_id = ?
+            ORDER BY ol.id ASC
+        """
+        for r in rows:
+            oid = r["id"]
+            lines_rows = cur.execute(fetch_lines_sql, (oid,)).fetchall()
+            lines_by_order[oid] = [
+                {
+                    "product_code": l["product_code"],
+                    "product_name": l["product_name"],
+                    "quantity": l["quantity"],
+                    "fulfilled": l["fulfilled"],
+                    "warehouse_city": l["warehouse_city"],
+                }
+                for l in lines_rows
+            ]
 
         orders = []
         for r in rows:

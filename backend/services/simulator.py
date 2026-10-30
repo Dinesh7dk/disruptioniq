@@ -275,18 +275,17 @@ def simulate_option(
 
             # Check which OTHER orders sharing the same stock at source warehouse would be affected
             src_available_after = src_available_before - sim_quantity
-            affected_ids = [o["order_id"] for o in affected_orders_before]
-            placeholders = ",".join("?" for _ in affected_ids) if affected_ids else "0"
+            affected_ids_set = {o["order_id"] for o in affected_orders_before}
 
-            other_orders = conn.execute(
-                f"""SELECT o.id, o.code, o.customer, o.priority, o.due_date, ol.quantity
-                    FROM orders o
-                    JOIN order_lines ol ON o.id = ol.order_id
-                    WHERE ol.warehouse_id = ? AND ol.product_id = ? AND o.status = 'OPEN'
-                      AND o.id NOT IN ({placeholders})
-                    ORDER BY o.due_date ASC""",
-                [source_wh_id, product_id] + affected_ids,
+            cand_orders = conn.execute(
+                """SELECT o.id, o.code, o.customer, o.priority, o.due_date, ol.quantity
+                   FROM orders o
+                   JOIN order_lines ol ON o.id = ol.order_id
+                   WHERE ol.warehouse_id = ? AND ol.product_id = ? AND o.status = 'OPEN'
+                   ORDER BY o.due_date ASC""",
+                (source_wh_id, product_id),
             ).fetchall()
+            other_orders = [oth for oth in cand_orders if oth["id"] not in affected_ids_set]
 
             for oth in other_orders:
                 req_qty = oth["quantity"]
@@ -425,18 +424,17 @@ def simulate_option(
                 )
 
             # Check other orders at same local warehouse
-            affected_ids = [o["order_id"] for o in affected_orders_before]
-            placeholders = ",".join("?" for _ in affected_ids) if affected_ids else "0"
+            affected_ids_set = {o["order_id"] for o in affected_orders_before}
             rem_after = max(0, local_avail_before - sim_quantity)
-            other_local_orders = conn.execute(
-                f"""SELECT o.id, o.code, o.customer, o.priority, o.due_date, ol.quantity
-                    FROM orders o
-                    JOIN order_lines ol ON o.id = ol.order_id
-                    WHERE ol.warehouse_id = ? AND ol.product_id = ? AND o.status = 'OPEN'
-                      AND o.id NOT IN ({placeholders})
-                    ORDER BY o.due_date ASC""",
-                [warehouse_id, product_id] + affected_ids,
+            cand_local_orders = conn.execute(
+                """SELECT o.id, o.code, o.customer, o.priority, o.due_date, ol.quantity
+                   FROM orders o
+                   JOIN order_lines ol ON o.id = ol.order_id
+                   WHERE ol.warehouse_id = ? AND ol.product_id = ? AND o.status = 'OPEN'
+                   ORDER BY o.due_date ASC""",
+                (warehouse_id, product_id),
             ).fetchall()
+            other_local_orders = [oth for oth in cand_local_orders if oth["id"] not in affected_ids_set]
 
             for oth in other_local_orders:
                 req_qty = oth["quantity"]

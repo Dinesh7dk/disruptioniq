@@ -13,6 +13,7 @@ Rule constraint:
 - Never create a second ACTIVE (status='OPEN') disruption for the same target!
   Update existing disruption if already open.
 """
+import json
 from typing import Any
 from backend.db import get_conn
 from backend.services.impact import analyze_impact
@@ -62,6 +63,7 @@ def detect_late_shipments(target_shipment_id: int | None = None) -> list[int]:
                        WHERE id = ?""",
                     (desc, product_id, warehouse_id, disruption_id),
                 )
+                action = "DISRUPTION_UPDATED"
             else:
                 cur = conn.execute(
                     """INSERT INTO disruptions (type, status, shipment_id, warehouse_id, product_id, description)
@@ -69,7 +71,13 @@ def detect_late_shipments(target_shipment_id: int | None = None) -> list[int]:
                     (shipment_id, warehouse_id, product_id, desc),
                 )
                 disruption_id = cur.lastrowid
+                action = "DISRUPTION_DETECTED"
 
+            conn.execute(
+                """INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, new_value)
+                   VALUES (NULL, ?, 'disruptions', ?, ?)""",
+                (action, disruption_id, json.dumps({"type": "SUPPLIER_DELAY", "status": "OPEN", "description": desc})),
+            )
             disruption_ids.append(disruption_id)
 
         conn.commit()
@@ -116,6 +124,7 @@ def detect_supplier_delays() -> list[int]:
                     "UPDATE disruptions SET description = ? WHERE id = ?",
                     (desc, disruption_id),
                 )
+                action = "DISRUPTION_UPDATED"
             else:
                 cur = conn.execute(
                     """INSERT INTO disruptions (type, status, description)
@@ -123,7 +132,13 @@ def detect_supplier_delays() -> list[int]:
                     (desc,),
                 )
                 disruption_id = cur.lastrowid
+                action = "DISRUPTION_DETECTED"
 
+            conn.execute(
+                """INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, new_value)
+                   VALUES (NULL, ?, 'disruptions', ?, ?)""",
+                (action, disruption_id, json.dumps({"type": "SUPPLIER_DELAY", "status": "OPEN", "description": desc})),
+            )
             disruption_ids.append(disruption_id)
 
         conn.commit()
@@ -182,6 +197,7 @@ def detect_stock_shortages() -> list[int]:
                     "UPDATE disruptions SET description = ? WHERE id = ?",
                     (desc, disruption_id),
                 )
+                action = "DISRUPTION_UPDATED"
             else:
                 cur = conn.execute(
                     """INSERT INTO disruptions (type, status, warehouse_id, product_id, description)
@@ -189,7 +205,13 @@ def detect_stock_shortages() -> list[int]:
                     (wh_id, prod_id, desc),
                 )
                 disruption_id = cur.lastrowid
+                action = "DISRUPTION_DETECTED"
 
+            conn.execute(
+                """INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, new_value)
+                   VALUES (NULL, ?, 'disruptions', ?, ?)""",
+                (action, disruption_id, json.dumps({"type": "STOCK_SHORTAGE", "status": "OPEN", "description": desc})),
+            )
             disruption_ids.append(disruption_id)
 
         conn.commit()

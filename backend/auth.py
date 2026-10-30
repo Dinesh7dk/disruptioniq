@@ -68,6 +68,15 @@ def decode_token(token: str) -> dict:
 
 # ── FastAPI dependencies ────────────────────────────────────────────────────────
 
+VALID_ROLES = {
+    "Operations Analyst",
+    "Supply Chain Manager",
+    "Warehouse Operator",
+    "Procurement Approver",
+    "Administrator",
+}
+
+
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> dict:
@@ -75,6 +84,7 @@ def get_current_user(
     Validates the Bearer token and returns the decoded payload dict:
       {"sub": "1", "username": "alice", "role": "Operations Analyst", ...}
     Raises 401 if token is missing or invalid.
+    Raises 403 if user role is not in VALID_ROLES (Hard Rule 3).
     """
     if credentials is None:
         raise HTTPException(
@@ -82,7 +92,13 @@ def get_current_user(
             detail="Not authenticated.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return decode_token(credentials.credentials)
+    user = decode_token(credentials.credentials)
+    if user.get("role") not in VALID_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Role '{user.get('role')}' is not authorized. Must be one of: {sorted(VALID_ROLES)}",
+        )
+    return user
 
 
 def require_role(*roles: str):

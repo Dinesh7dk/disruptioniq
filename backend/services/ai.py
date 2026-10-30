@@ -220,6 +220,15 @@ STRICT RULES:
                WHERE id = ?""",
             (summary_text, source, disruption_id),
         )
+        conn.execute(
+            """INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, new_value, note)
+               VALUES (NULL, 'AI_SUMMARY_GENERATED', 'disruptions', ?, ?, ?)""",
+            (
+                disruption_id,
+                json.dumps({"ai_summary": summary_text, "ai_source": source}),
+                f"Generated summary via {source}",
+            ),
+        )
         conn.commit()
     finally:
         conn.close()

@@ -45,15 +45,32 @@ def _is_iso_date(value: str) -> bool:
 
 # ── Lookup helpers (cached per import call via passed-in conn) ──────────────────
 
-def _lookup_table(conn, table: str, code_col: str) -> dict[str, int]:
-    """Return {code: id} for the given table."""
-    rows = conn.execute(f"SELECT id, {code_col} FROM {table}").fetchall()  # noqa: S608
-    # This is safe: table/code_col are internal constants, never user input.
+_LOOKUP_QUERIES = {
+    "suppliers": "SELECT id, code FROM suppliers",
+    "products": "SELECT id, code FROM products",
+    "warehouses": "SELECT id, code FROM warehouses",
+}
+
+def _lookup_table(conn, table: str, code_col: str = "code") -> dict[str, int]:
+    """Return {code: id} for the given table without dynamic string formatting."""
+    query = _LOOKUP_QUERIES.get(table)
+    if not query:
+        raise ValueError(f"Unknown lookup table: {table}")
+    rows = conn.execute(query).fetchall()
     return {r[code_col]: r["id"] for r in rows}
 
 
-def _existing_codes(conn, table: str, code_col: str) -> set[str]:
-    rows = conn.execute(f"SELECT {code_col} FROM {table}").fetchall()  # noqa: S608
+_CODE_QUERIES = {
+    "shipments": "SELECT code FROM shipments",
+    "orders": "SELECT code FROM orders",
+}
+
+def _existing_codes(conn, table: str, code_col: str = "code") -> set[str]:
+    """Return set of existing codes without dynamic string formatting."""
+    query = _CODE_QUERIES.get(table)
+    if not query:
+        raise ValueError(f"Unknown code table: {table}")
+    rows = conn.execute(query).fetchall()
     return {r[code_col] for r in rows}
 
 
