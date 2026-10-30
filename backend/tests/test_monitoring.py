@@ -131,6 +131,60 @@ class TestDisruptionsEndpoints:
         resp = client.get("/disruptions/99999", headers=auth_header(tokens["analyst"]))
         assert resp.status_code == 404
 
+    def test_disruption_graph_cascade(self, client, tokens):
+        """
+        Verify GET /disruptions/{id}/graph returns {nodes, edges} for
+        Supplier -> Shipment -> Warehouse -> Orders -> Customers,
+        with risk level and breakdown on each order node.
+        """
+        resp = client.get("/disruptions/1/graph", headers=auth_header(tokens["analyst"]))
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "nodes" in data
+        assert "edges" in data
+        nodes = data["nodes"]
+        edges = data["edges"]
+
+        # Check node entity types present
+        entity_types = {n["data"]["entity_type"] for n in nodes}
+        assert "supplier" in entity_types
+        assert "shipment" in entity_types
+        assert "warehouse" in entity_types
+        assert "order" in entity_types
+        assert "customer" in entity_types
+
+        # Verify risk level on each order node
+        order_nodes = [n for n in nodes if n["data"]["entity_type"] == "order"]
+        assert len(order_nodes) >= 1
+        for onode in order_nodes:
+            d = onode["data"]
+            assert d["risk_level"] in ("HIGH", "MEDIUM", "LOW")
+            assert "risk_score" in d
+            assert "risk_breakdown" in d
+            assert isinstance(d["risk_breakdown"], dict)
+            assert "order_code" in d
+
+        # Check edge cascade links
+        edge_pairs = {(e["source"], e["target"]) for e in edges}
+        sup_node = next(n for n in nodes if n["data"]["entity_type"] == "supplier")
+        ship_node = next(n for n in nodes if n["data"]["entity_type"] == "shipment")
+        wh_node = next(n for n in nodes if n["data"]["entity_type"] == "warehouse")
+
+        assert (sup_node["id"], ship_node["id"]) in edge_pairs
+        assert (ship_node["id"], wh_node["id"]) in edge_pairs
+
+        # Each order connected from warehouse and to its customer
+        for onode in order_nodes:
+            assert (wh_node["id"], onode["id"]) in edge_pairs
+            cust_edges = [e for e in edges if e["source"] == onode["id"]]
+            assert len(cust_edges) >= 1
+
+        # Unauthenticated returns 401
+        assert client.get("/disruptions/1/graph").status_code == 401
+
+        # Not found returns 404
+        assert client.get("/disruptions/99999/graph", headers=auth_header(tokens["analyst"])).status_code == 404
+
 
 class TestOrdersEndpoint:
     def test_orders_sorted_by_risk(self, client, tokens):

@@ -1,12 +1,121 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import ReactFlow, { Background, Controls, Handle, Position, MarkerType } from 'reactflow';
+import 'reactflow/dist/style.css';
 import { apiFetch } from './api';
+
+// Custom node component for ReactFlow cascade diagram
+function CascadeNode({ data, selected }) {
+  const isOrder = data.entity_type === 'order';
+  const isShipment = data.entity_type === 'shipment';
+  const isSupplier = data.entity_type === 'supplier';
+  const isWarehouse = data.entity_type === 'warehouse';
+  const isCustomer = data.entity_type === 'customer';
+
+  let borderColor = 'var(--color-line)';
+  let bgColor = '#FFFFFF';
+  let badgeColor = 'var(--color-muted-ink)';
+
+  if (isOrder) {
+    if (data.risk_level === 'HIGH') {
+      borderColor = 'var(--color-risk-high)';
+      bgColor = '#FDF2F2';
+      badgeColor = 'var(--color-risk-high)';
+    } else if (data.risk_level === 'MEDIUM') {
+      borderColor = 'var(--color-risk-medium)';
+      bgColor = '#FEF9F0';
+      badgeColor = 'var(--color-risk-medium)';
+    } else {
+      borderColor = 'var(--color-risk-low)';
+      bgColor = '#F2F8F4';
+      badgeColor = 'var(--color-risk-low)';
+    }
+  } else if (isShipment && (data.delay_days > 0 || data.status === 'DELAYED')) {
+    borderColor = 'var(--color-risk-high)';
+    bgColor = '#FDF6F6';
+  } else if (isWarehouse) {
+    borderColor = 'var(--color-primary)';
+    bgColor = '#F8FBFB';
+  } else if (isSupplier) {
+    borderColor = '#8B9B90';
+    bgColor = '#FAFBF9';
+  } else if (isCustomer) {
+    borderColor = '#5A6A6E';
+    bgColor = '#F7F8F7';
+  }
+
+  return (
+    <div
+      style={{
+        padding: '10px 14px',
+        borderRadius: 'var(--radius-panel)',
+        border: `2px solid ${borderColor}`,
+        backgroundColor: bgColor,
+        minWidth: isOrder ? '160px' : '130px',
+        boxShadow: selected ? '0 0 0 2px var(--color-primary)' : 'none',
+        cursor: isOrder ? 'pointer' : 'default',
+        transition: 'all 0.15s ease',
+        fontFamily: "'Public Sans', system-ui, sans-serif",
+      }}
+    >
+      <Handle type="target" position={Position.Left} style={{ background: '#5A6A6E', width: 6, height: 6 }} />
+      <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-muted-ink)', fontWeight: '600', marginBottom: '3px' }}>
+        {data.entity_type}
+      </div>
+      <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--color-ink)', lineHeight: '1.2' }}>
+        {data.label}
+      </div>
+
+      {isOrder && (
+        <div style={{ marginTop: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+            <span
+              className={`severity-pill severity-pill-${data.risk_level?.toLowerCase()}`}
+              style={{ fontSize: '10px', padding: '1px 6px', fontWeight: '700' }}
+            >
+              {data.risk_level}
+            </span>
+            <span className="num" style={{ fontSize: '11px', fontWeight: '700', color: badgeColor }}>
+              {data.risk_score} pts
+            </span>
+          </div>
+          <div style={{ fontSize: '10px', color: 'var(--color-muted-ink)', marginTop: '4px', textAlign: 'center' }}>
+            Click &rarr; waterfall
+          </div>
+        </div>
+      )}
+
+      {isShipment && data.delay_days > 0 && (
+        <div style={{ fontSize: '11px', color: 'var(--color-risk-high)', fontWeight: '600', marginTop: '4px' }}>
+          +{data.delay_days}d delay
+        </div>
+      )}
+
+      {isCustomer && (
+        <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', marginTop: '2px' }}>
+          Customer
+        </div>
+      )}
+
+      <Handle type="source" position={Position.Right} style={{ background: '#5A6A6E', width: 6, height: 6 }} />
+    </div>
+  );
+}
+
+// Risk waterfall stacked bar factor configuration
+const WATERFALL_FACTORS = [
+  { key: 'urgency', label: 'Delivery Urgency', max: 35, color: '#B3261E' },
+  { key: 'delay_length', label: 'Delay Length', max: 25, color: '#C77D0A' },
+  { key: 'customer_priority', label: 'Customer Priority', max: 20, color: '#0F5E63' },
+  { key: 'shortfall', label: 'Stock Shortfall', max: 10, color: '#35557A' },
+  { key: 'alt_stock', label: 'Alt Stock Scarcity', max: 10, color: '#5A6A6E' },
+];
 
 export default function DisruptionDetail({ disruptionId, onBack, currentUser, onPlanProposed }) {
   const [disruption, setDisruption] = useState(null);
   const [loading, setLoading] = useState(true);
   const [proposing, setProposing] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState({ type: '', text: '' });
-  const [activeTab, setActiveTab] = useState('options'); // 'options' | 'cascade' | 'orders'
+  const [activeTab, setActiveTab] = useState('cascade'); // 'cascade' | 'options' | 'orders'
 
   // What-If Simulation State
   const [simulations, setSimulations] = useState({});
@@ -14,8 +123,17 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
   const [simulatingAll, setSimulatingAll] = useState(false);
   const [inspectedIndex, setInspectedIndex] = useState(0);
 
+  // Graph State
+  const [graphNodes, setGraphNodes] = useState([]);
+  const [graphEdges, setGraphEdges] = useState([]);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [highlightedOrderId, setHighlightedOrderId] = useState(null);
+
+  const nodeTypes = useMemo(() => ({ default: CascadeNode }), []);
+
   useEffect(() => {
     fetchDetail();
+    fetchGraph();
   }, [disruptionId]);
 
   const fetchDetail = async () => {
@@ -34,6 +152,43 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
       setLoading(false);
     }
   };
+
+  const fetchGraph = async () => {
+    setGraphLoading(true);
+    try {
+      const res = await apiFetch(`/disruptions/${disruptionId}/graph`);
+      if (res.ok) {
+        const data = await res.json();
+        const edgesWithStyles = (data.edges || []).map(edge => ({
+          ...edge,
+          style: { stroke: '#8B9B90', strokeWidth: 1.5 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#8B9B90', width: 14, height: 14 },
+        }));
+        setGraphNodes(data.nodes || []);
+        setGraphEdges(edgesWithStyles);
+      }
+    } catch (err) {
+      console.error('Failed to load cascade graph:', err);
+    } finally {
+      setGraphLoading(false);
+    }
+  };
+
+  const scrollToWaterfall = useCallback((orderId) => {
+    setHighlightedOrderId(orderId);
+    setTimeout(() => {
+      const el = document.getElementById(`order-waterfall-${orderId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  }, []);
+
+  const handleNodeClick = useCallback((event, node) => {
+    if (node.data?.entity_type === 'order') {
+      scrollToWaterfall(node.data.order_id);
+    }
+  }, [scrollToWaterfall]);
 
   const handleSimulate = async (opt, index) => {
     setSimulating(prev => ({ ...prev, [index]: true }));
@@ -139,6 +294,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
   const sourceLabel = isLLM ? 'Google Gemini 2.5 Flash' : 'Deterministic rule-based fallback';
   const options = disruption.options || [];
   const activeSim = simulations[inspectedIndex];
+  const impacts = disruption.impacts || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
@@ -200,8 +356,16 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
         </p>
       </div>
 
-      {/* View Switcher Tabs: Compare Options & Simulator | Cascade Map | Affected Orders */}
+      {/* View Switcher Tabs: Cascade Map & Waterfall | Compare Options & Simulator | Affected Orders */}
       <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--color-line)', paddingBottom: '4px' }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('cascade')}
+          className={activeTab === 'cascade' ? 'btn-primary' : 'btn-secondary'}
+          style={{ fontSize: '12px', padding: '4px 12px' }}
+        >
+          Supply cascade map &amp; Risk waterfall
+        </button>
         <button
           type="button"
           onClick={() => setActiveTab('options')}
@@ -212,23 +376,189 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('cascade')}
-          className={activeTab === 'cascade' ? 'btn-primary' : 'btn-secondary'}
-          style={{ fontSize: '12px', padding: '4px 12px' }}
-        >
-          Supply cascade map
-        </button>
-        <button
-          type="button"
           onClick={() => setActiveTab('orders')}
           className={activeTab === 'orders' ? 'btn-primary' : 'btn-secondary'}
           style={{ fontSize: '12px', padding: '4px 12px' }}
         >
-          Impacted orders ({disruption.impacts?.length || 0})
+          Impacted orders ({impacts.length})
         </button>
       </div>
 
-      {/* Tab 1: Compare Recovery Options & What-If Simulator Panel */}
+      {/* Tab 1: Supply Cascade Graph & Risk Waterfall */}
+      {activeTab === 'cascade' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* ReactFlow Interactive Graph Panel */}
+          <div className="desk-panel" style={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <h2 style={{ fontSize: '15px', fontWeight: '600' }}>
+                  Supply cascade graph: Supplier &rarr; Shipment &rarr; Warehouse &rarr; Orders &rarr; Customers
+                </h2>
+                <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+                  Order nodes are colored by risk severity (HIGH red, MEDIUM amber, LOW green). Click any order node to scroll to its risk waterfall.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '12px' }}>
+                <span className="severity-pill severity-pill-high">HIGH risk</span>
+                <span className="severity-pill severity-pill-medium">MEDIUM risk</span>
+                <span className="severity-pill severity-pill-low">LOW risk</span>
+              </div>
+            </div>
+
+            <div style={{ height: '360px', width: '100%', border: '1px solid var(--color-line)', borderRadius: 'var(--radius-panel)', backgroundColor: '#FAFCFA' }}>
+              {graphLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-muted-ink)' }}>
+                  Loading supply cascade graph...
+                </div>
+              ) : (
+                <ReactFlow
+                  nodes={graphNodes}
+                  edges={graphEdges}
+                  nodeTypes={nodeTypes}
+                  onNodeClick={handleNodeClick}
+                  fitView
+                  fitViewOptions={{ padding: 0.2 }}
+                  attributionPosition="bottom-right"
+                >
+                  <Background color="var(--color-line)" gap={16} size={1} />
+                  <Controls showInteractive={false} />
+                </ReactFlow>
+              )}
+            </div>
+          </div>
+
+          {/* Risk Waterfall Section */}
+          <div className="desk-panel" style={{ padding: '16px 20px' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '700' }}>
+                Risk waterfall &amp; Multi-factor score breakdown
+              </h3>
+              <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+                Deterministic point contributions per affected customer order. Max score is 100 points.
+              </p>
+            </div>
+
+            {impacts.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-muted-ink)' }}>
+                No impacted orders identified for this disruption.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                {impacts.map((imp) => {
+                  const orderId = imp.order_id || imp.id;
+                  const b = imp.breakdown || imp.risk_breakdown || {};
+                  const score = imp.risk_score || 0;
+                  const isHighlighted = highlightedOrderId === orderId;
+
+                  return (
+                    <div
+                      key={orderId}
+                      id={`order-waterfall-${orderId}`}
+                      className="desk-panel"
+                      style={{
+                        padding: '16px 20px',
+                        border: isHighlighted ? '2px solid var(--color-primary)' : '1px solid var(--color-line)',
+                        backgroundColor: isHighlighted ? '#F4F8F6' : '#FFFFFF',
+                        transition: 'border 0.3s ease, background-color 0.3s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className={`severity-pill severity-pill-${imp.risk_level?.toLowerCase() || 'high'}`}>
+                            {imp.risk_level || 'HIGH'}
+                          </span>
+                          <span className="num" style={{ fontSize: '15px', fontWeight: '700' }}>
+                            {imp.order_code}
+                          </span>
+                          <span style={{ fontSize: '13px', color: 'var(--color-ink)' }}>
+                            &middot; {imp.customer}
+                          </span>
+                          <span style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+                            (Due {imp.due_date})
+                          </span>
+                        </div>
+                        <div className="num" style={{ fontWeight: '700', fontSize: '15px' }}>
+                          {score} / 100 <span style={{ fontSize: '12px', fontWeight: '400', color: 'var(--color-muted-ink)' }}>total risk points</span>
+                        </div>
+                      </div>
+
+                      {/* Stacked Bar Risk Waterfall */}
+                      <div style={{
+                        width: '100%',
+                        height: '24px',
+                        backgroundColor: '#EAECE7',
+                        borderRadius: '2px',
+                        display: 'flex',
+                        overflow: 'hidden',
+                        marginBottom: '10px',
+                        border: '1px solid var(--color-line)',
+                      }}>
+                        {WATERFALL_FACTORS.map(f => {
+                          const pts = Number(b[f.key] || 0);
+                          if (pts <= 0) return null;
+                          const widthPct = Math.min(100, (pts / 100) * 100);
+                          return (
+                            <div
+                              key={f.key}
+                              title={`${f.label}: ${pts} pts (out of ${f.max})`}
+                              style={{
+                                width: `${widthPct}%`,
+                                backgroundColor: f.color,
+                                height: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#FFFFFF',
+                                fontSize: '11px',
+                                fontWeight: '600',
+                                transition: 'width 0.4s ease',
+                              }}
+                            >
+                              {widthPct >= 8 ? `${pts}` : ''}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Factors Breakdown Grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', marginBottom: '12px' }}>
+                        {WATERFALL_FACTORS.map(f => {
+                          const pts = Number(b[f.key] || 0);
+                          return (
+                            <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                              <div style={{ width: '10px', height: '10px', backgroundColor: f.color, borderRadius: '2px', flexShrink: 0 }} />
+                              <span style={{ color: 'var(--color-muted-ink)' }}>{f.label}:</span>
+                              <strong className="num" style={{ color: pts > 0 ? 'var(--color-ink)' : 'var(--color-muted-ink)' }}>
+                                {pts} / {f.max}
+                              </strong>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Plain English Contributing Reasons */}
+                      {imp.reasons && imp.reasons.length > 0 && (
+                        <div style={{ borderTop: '1px solid var(--color-line)', paddingTop: '8px', fontSize: '12px' }}>
+                          <div style={{ fontWeight: '600', color: 'var(--color-muted-ink)', marginBottom: '4px' }}>
+                            Contributing risk explanations:
+                          </div>
+                          <ul style={{ margin: 0, paddingLeft: '18px', color: 'var(--color-ink)', lineHeight: '1.5' }}>
+                            {imp.reasons.map((r, ri) => (
+                              <li key={ri}>{r}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 2: Compare Recovery Options & What-If Simulator Panel */}
       {activeTab === 'options' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           {/* Main Side-by-Side Comparison Panel */}
@@ -576,93 +906,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
         </div>
       )}
 
-      {/* Tab 2: Supply Cascade Map */}
-      {activeTab === 'cascade' && (
-        <div className="desk-panel" style={{ padding: '20px' }}>
-          <div style={{ marginBottom: '16px' }}>
-            <h2 style={{ fontSize: '15px', fontWeight: '600' }}>
-              Supply chain disruption cascade graph
-            </h2>
-            <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
-              Traces supplier shipment origin through regional warehousing to impacted downstream customer orders.
-            </p>
-          </div>
-
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '12px',
-            padding: '24px',
-            backgroundColor: '#FFFFFF',
-            border: '1px solid var(--color-line)',
-            borderRadius: 'var(--radius-panel)',
-          }}>
-            {/* Stage 1: Supplier */}
-            <div style={{ textAlign: 'center', minWidth: '120px' }}>
-              <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', textTransform: 'uppercase', marginBottom: '4px' }}>
-                1. Supplier
-              </div>
-              <div className="desk-panel" style={{ padding: '8px 12px', fontWeight: '600' }}>
-                Supplier A
-              </div>
-            </div>
-
-            <div style={{ color: 'var(--color-muted-ink)', fontSize: '16px' }}>&rarr;</div>
-
-            {/* Stage 2: Shipment */}
-            <div style={{ textAlign: 'center', minWidth: '130px' }}>
-              <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', textTransform: 'uppercase', marginBottom: '4px' }}>
-                2. Shipment
-              </div>
-              <div className="desk-panel row-high" style={{ padding: '8px 12px' }}>
-                <div className="num" style={{ fontWeight: '700' }}>SH-001</div>
-                <div style={{ fontSize: '11px', color: 'var(--color-risk-high)' }}>Delayed (+6 days)</div>
-              </div>
-            </div>
-
-            <div style={{ color: 'var(--color-muted-ink)', fontSize: '16px' }}>&rarr;</div>
-
-            {/* Stage 3: Warehouse Destination */}
-            <div style={{ textAlign: 'center', minWidth: '130px' }}>
-              <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', textTransform: 'uppercase', marginBottom: '4px' }}>
-                3. Warehouse
-              </div>
-              <div className="desk-panel" style={{ padding: '8px 12px', fontWeight: '600' }}>
-                Chennai WH
-              </div>
-            </div>
-
-            <div style={{ color: 'var(--color-muted-ink)', fontSize: '16px' }}>&rarr;</div>
-
-            {/* Stage 4: Impacted Customer Orders */}
-            <div style={{ textAlign: 'center', minWidth: '160px' }}>
-              <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', textTransform: 'uppercase', marginBottom: '4px' }}>
-                4. At-risk customer orders
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <div className="desk-panel row-high" style={{ padding: '4px 8px', fontSize: '12px' }}>
-                  <strong>O-001</strong> City Hospital (High risk)
-                </div>
-                <div className="desk-panel row-high" style={{ padding: '4px 8px', fontSize: '12px' }}>
-                  <strong>O-002</strong> MediChain (High risk)
-                </div>
-                <div className="desk-panel row-medium" style={{ padding: '4px 8px', fontSize: '12px' }}>
-                  <strong>O-003</strong> Corner Pharma (Medium risk)
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ marginTop: '16px', display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--color-muted-ink)' }}>
-            <div><span style={{ color: 'var(--color-risk-high)', fontWeight: '700' }}>&bull;</span> Red edge indicates critical delay or high breach risk.</div>
-            <div><span style={{ color: 'var(--color-risk-med)', fontWeight: '700' }}>&bull;</span> Amber edge indicates low buffer warning.</div>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 3: Impacted Orders & Risk Factor Breakdown */}
+      {/* Tab 3: Impacted Orders Table View */}
       {activeTab === 'orders' && (
         <div className="desk-panel" style={{ overflow: 'hidden' }}>
           <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-line)' }}>
@@ -684,8 +928,8 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
               </tr>
             </thead>
             <tbody>
-              {disruption.impacts?.map((imp) => (
-                <tr key={imp.id} className={`row-${imp.priority === 'HIGH' ? 'high' : 'medium'}`}>
+              {impacts.map((imp) => (
+                <tr key={imp.id || imp.order_id} className={`row-${imp.priority === 'HIGH' ? 'high' : 'medium'}`}>
                   <td>
                     <span className={`severity-pill severity-pill-${imp.priority === 'HIGH' ? 'high' : 'medium'}`}>
                       {imp.priority}

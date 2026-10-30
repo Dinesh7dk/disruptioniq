@@ -44,6 +44,7 @@ from backend.services.monitoring import (
     get_notifications,
     get_audit_logs,
     get_recent_events,
+    get_disruption_graph,
 )
 from backend.services.simulator import simulate_option, simulate_plan
 from pydantic import Field
@@ -307,6 +308,15 @@ def get_disruption(id: int, user: dict = Depends(get_current_user)):
             detail=f"Disruption {id} not found.",
         )
     return disruption
+
+
+@app.get("/disruptions/{id}/graph", tags=["disruptions"])
+def disruption_graph(id: int, user: dict = Depends(get_current_user)):
+    """
+    Supply chain cascade graph for Supplier -> Shipment -> Warehouse -> Orders -> Customers,
+    with risk level and breakdown on each order node.
+    """
+    return get_disruption_graph(disruption_id=id)
 
 
 @app.get("/disruptions/{id}/options", tags=["disruptions"])

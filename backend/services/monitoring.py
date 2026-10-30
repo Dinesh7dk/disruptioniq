@@ -6,6 +6,7 @@ Strictly complies with parameterized SQL (? placeholders, no ORM) and hard rules
 """
 import json
 from typing import Any
+from fastapi import HTTPException, status
 from backend.db import get_conn
 from backend.services.recovery import generate_options
 
@@ -563,3 +564,264 @@ def get_recent_events(limit: int = 50) -> list[dict[str, Any]]:
         return result
     finally:
         conn.close()
+
+
+def get_disruption_graph(disruption_id: int) -> dict[str, Any]:
+    """
+    Returns graph representation {nodes, edges} for the supply chain cascade:
+    Supplier -> Shipment -> Warehouse -> Orders -> Customers
+    Each order node includes risk_level ("HIGH" | "MEDIUM" | "LOW"), risk_score,
+    and risk_breakdown.
+    """
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        query = """
+        SELECT 
+            d.id AS disruption_id,
+            d.type AS disruption_type,
+            d.status AS disruption_status,
+            d.description AS disruption_description,
+            d.product_id AS d_product_id,
+            d.warehouse_id AS d_warehouse_id,
+            s.id AS shipment_id,
+            s.code AS shipment_code,
+            s.status AS shipment_status,
+            s.current_eta,
+            s.expected_arrival,
+            s.delay_days,
+            s.quantity AS shipment_quantity,
+            s.product_id AS s_product_id,
+            s.dest_warehouse_id AS s_warehouse_id,
+            sup.id AS supplier_id,
+            sup.code AS supplier_code,
+            sup.name AS supplier_name,
+            sup.contact AS supplier_contact,
+            w.id AS warehouse_id,
+            w.code AS warehouse_code,
+            w.name AS warehouse_name,
+            w.city AS warehouse_city,
+            p.id AS product_id,
+            p.code AS product_code,
+            p.name AS product_name
+        FROM disruptions d
+        LEFT JOIN shipments s ON d.shipment_id = s.id
+        LEFT JOIN suppliers sup ON s.supplier_id = sup.id
+        LEFT JOIN warehouses w ON (d.warehouse_id = w.id OR s.dest_warehouse_id = w.id)
+        LEFT JOIN products p ON (d.product_id = p.id OR s.product_id = p.id)
+        WHERE d.id = ?
+        """
+        d = cur.execute(query, (disruption_id,)).fetchone()
+        if not d:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Disruption #{disruption_id} not found."
+            )
+
+        # Fallback for supplier if not linked via shipment
+        supplier_id = d["supplier_id"]
+        supplier_name = d["supplier_name"]
+        supplier_contact = d["supplier_contact"]
+        supplier_code = d["supplier_code"]
+        if not supplier_id:
+            sup_row = cur.execute("SELECT * FROM suppliers ORDER BY reliability_score DESC LIMIT 1").fetchone()
+            if sup_row:
+                supplier_id = sup_row["id"]
+                supplier_name = sup_row["name"]
+                supplier_contact = sup_row["contact"]
+                supplier_code = sup_row["code"]
+            else:
+                supplier_id = 1
+                supplier_name = "Primary Supplier"
+                supplier_contact = "Primary Contact"
+                supplier_code = "SUP-001"
+
+        # Fallback for warehouse
+        warehouse_id = d["warehouse_id"]
+        warehouse_name = d["warehouse_name"]
+        warehouse_city = d["warehouse_city"]
+        warehouse_code = d["warehouse_code"]
+        if not warehouse_id:
+            wh_row = cur.execute("SELECT * FROM warehouses LIMIT 1").fetchone()
+            if wh_row:
+                warehouse_id = wh_row["id"]
+                warehouse_name = wh_row["name"]
+                warehouse_city = wh_row["city"]
+                warehouse_code = wh_row["code"]
+            else:
+                warehouse_id = 1
+                warehouse_name = "Regional WH"
+                warehouse_city = "Hub"
+                warehouse_code = "WH-01"
+
+        # Fetch affected orders from disruption_impacts
+        impact_rows = cur.execute(
+            """SELECT 
+                 di.risk_score, di.risk_level, di.risk_breakdown, di.risk_reasons, di.units_at_risk,
+                 o.id AS order_id, o.code AS order_code, o.customer, o.priority, o.due_date, o.status AS order_status
+               FROM disruption_impacts di
+               JOIN orders o ON di.order_id = o.id
+               WHERE di.disruption_id = ?
+               ORDER BY di.risk_score DESC""",
+            (disruption_id,),
+        ).fetchall()
+
+        # If impacts not yet computed, compute them dynamically
+        if not impact_rows:
+            conn.close()
+            from backend.services.impact import analyze_impact
+            analyze_impact(disruption_id)
+            conn = get_conn()
+            cur = conn.cursor()
+            impact_rows = cur.execute(
+                """SELECT 
+                     di.risk_score, di.risk_level, di.risk_breakdown, di.risk_reasons, di.units_at_risk,
+                     o.id AS order_id, o.code AS order_code, o.customer, o.priority, o.due_date, o.status AS order_status
+                   FROM disruption_impacts di
+                   JOIN orders o ON di.order_id = o.id
+                   WHERE di.disruption_id = ?
+                   ORDER BY di.risk_score DESC""",
+                (disruption_id,),
+            ).fetchall()
+
+        num_orders = max(1, len(impact_rows))
+        center_y = max(80, (num_orders * 110) // 2)
+
+        nodes = []
+        edges = []
+
+        # 1. Supplier Node
+        sup_node_id = f"supplier-{supplier_id}"
+        nodes.append({
+            "id": sup_node_id,
+            "type": "default",
+            "position": {"x": 50, "y": center_y},
+            "data": {
+                "label": f"{supplier_name} ({supplier_code})",
+                "entity_type": "supplier",
+                "code": supplier_code,
+                "name": supplier_name,
+                "contact": supplier_contact,
+            },
+        })
+
+        # 2. Shipment Node
+        shipment_id = d["shipment_id"]
+        ship_node_id = f"shipment-{shipment_id or 'none'}"
+        ship_label = f"{d['shipment_code'] or 'Inbound Transport'}"
+        if d["delay_days"]:
+            ship_label += f" (+{d['delay_days']}d delay)"
+        nodes.append({
+            "id": ship_node_id,
+            "type": "default",
+            "position": {"x": 280, "y": center_y},
+            "data": {
+                "label": ship_label,
+                "entity_type": "shipment",
+                "code": d["shipment_code"],
+                "status": d["shipment_status"],
+                "delay_days": d["delay_days"] or 0,
+                "current_eta": d["current_eta"],
+                "expected_arrival": d["expected_arrival"],
+            },
+        })
+        edges.append({
+            "id": f"e-{sup_node_id}-{ship_node_id}",
+            "source": sup_node_id,
+            "target": ship_node_id,
+            "animated": True,
+        })
+
+        # 3. Warehouse Node
+        wh_node_id = f"warehouse-{warehouse_id}"
+        nodes.append({
+            "id": wh_node_id,
+            "type": "default",
+            "position": {"x": 510, "y": center_y},
+            "data": {
+                "label": f"{warehouse_city} ({warehouse_code})",
+                "entity_type": "warehouse",
+                "code": warehouse_code,
+                "city": warehouse_city,
+                "name": warehouse_name,
+            },
+        })
+        edges.append({
+            "id": f"e-{ship_node_id}-{wh_node_id}",
+            "source": ship_node_id,
+            "target": wh_node_id,
+            "animated": True,
+        })
+
+        # 4. Orders and Customers
+        for i, imp in enumerate(impact_rows):
+            y_pos = 40 + i * 110
+
+            breakdown = {}
+            if imp["risk_breakdown"]:
+                try:
+                    breakdown = json.loads(imp["risk_breakdown"]) if isinstance(imp["risk_breakdown"], str) else imp["risk_breakdown"]
+                except Exception:
+                    breakdown = {}
+
+            reasons = []
+            if imp["risk_reasons"]:
+                try:
+                    reasons = json.loads(imp["risk_reasons"]) if isinstance(imp["risk_reasons"], str) else imp["risk_reasons"]
+                except Exception:
+                    reasons = []
+
+            ord_node_id = f"order-{imp['order_id']}"
+            nodes.append({
+                "id": ord_node_id,
+                "type": "default",
+                "position": {"x": 740, "y": y_pos},
+                "data": {
+                    "label": f"{imp['order_code']} ({imp['risk_level']})",
+                    "entity_type": "order",
+                    "order_id": imp["order_id"],
+                    "order_code": imp["order_code"],
+                    "customer": imp["customer"],
+                    "priority": imp["priority"],
+                    "due_date": imp["due_date"],
+                    "risk_level": imp["risk_level"],
+                    "risk_score": float(imp["risk_score"]),
+                    "units_at_risk": imp["units_at_risk"],
+                    "risk_breakdown": breakdown,
+                    "risk_reasons": reasons,
+                },
+            })
+            edges.append({
+                "id": f"e-{wh_node_id}-{ord_node_id}",
+                "source": wh_node_id,
+                "target": ord_node_id,
+            })
+
+            # 5. Customer Node
+            cust_node_id = f"customer-{imp['order_id']}"
+            nodes.append({
+                "id": cust_node_id,
+                "type": "default",
+                "position": {"x": 970, "y": y_pos},
+                "data": {
+                    "label": imp["customer"],
+                    "entity_type": "customer",
+                    "customer_name": imp["customer"],
+                    "order_id": imp["order_id"],
+                    "order_code": imp["order_code"],
+                },
+            })
+            edges.append({
+                "id": f"e-{ord_node_id}-{cust_node_id}",
+                "source": ord_node_id,
+                "target": cust_node_id,
+            })
+
+        return {
+            "disruption_id": disruption_id,
+            "nodes": nodes,
+            "edges": edges,
+        }
+    finally:
+        conn.close()
+
