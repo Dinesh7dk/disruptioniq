@@ -31,6 +31,8 @@ def hashed(pw: str) -> str:
 
 # ══════════════════════════════════════════════════════════════════════════════
 def seed(db_path: Path = DB_PATH):
+    global TODAY
+    TODAY = date.today()
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = OFF;")   # allow truncation ordering
     conn.row_factory = sqlite3.Row

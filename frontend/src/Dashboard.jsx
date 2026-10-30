@@ -18,8 +18,43 @@ export default function Dashboard({
   const [actionSuccess, setActionSuccess] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Filtered orders
-  const filteredOrders = affectedOrders.filter((ord) => {
+  // Natural Language Search Bar State
+  const [nlQuery, setNlQuery] = useState('');
+  const [nlSearching, setNlSearching] = useState(false);
+  const [nlResults, setNlResults] = useState(null); // { query, filter, parsed_by, count, orders }
+  const [nlError, setNlError] = useState('');
+
+  const handleNlSearch = async (e) => {
+    e.preventDefault();
+    if (!nlQuery.trim()) return;
+    setNlSearching(true);
+    setNlError('');
+    try {
+      const res = await apiFetch('/query/natural', {
+        method: 'POST',
+        body: JSON.stringify({ query: nlQuery.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Query could not be executed.');
+      }
+      setNlResults(data);
+    } catch (err) {
+      setNlError(err.message);
+    } finally {
+      setNlSearching(false);
+    }
+  };
+
+  const handleClearNlSearch = () => {
+    setNlQuery('');
+    setNlResults(null);
+    setNlError('');
+  };
+
+  // Orders to display (use NL search results if active, otherwise affectedOrders)
+  const baseOrders = nlResults ? nlResults.orders : affectedOrders;
+  const filteredOrders = baseOrders.filter((ord) => {
     if (activeFilter === 'high') return (ord.risk_score || 0) >= 70;
     if (activeFilter === 'medium') return (ord.risk_score || 0) >= 40 && (ord.risk_score || 0) < 70;
     return true;
@@ -189,6 +224,81 @@ export default function Dashboard({
           >
             Clear filter
           </button>
+        )}
+      </div>
+
+      {/* Natural Language Query Search Bar */}
+      <div className="desk-panel" style={{ padding: '12px 16px', backgroundColor: '#FFFFFF', border: '1px solid var(--color-line)' }}>
+        <form onSubmit={handleNlSearch} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-primary)', fontWeight: '600', fontSize: '13px', whiteSpace: 'nowrap' }}>
+            <span>&#128269;</span> Ask Desk:
+          </div>
+          <input
+            type="text"
+            value={nlQuery}
+            onChange={(e) => setNlQuery(e.target.value)}
+            placeholder='Natural language query e.g. "high priority orders due in 7 days", "orders in Chennai", "critical risk"...'
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              fontSize: '13px',
+              border: '1px solid var(--color-line)',
+              borderRadius: 'var(--radius-panel)',
+            }}
+          />
+          <button
+            type="submit"
+            disabled={nlSearching || !nlQuery.trim()}
+            className="btn-primary"
+            style={{ fontSize: '12px', padding: '8px 16px', whiteSpace: 'nowrap' }}
+          >
+            {nlSearching ? 'Searching...' : 'Search'}
+          </button>
+          {nlResults && (
+            <button
+              type="button"
+              onClick={handleClearNlSearch}
+              className="btn-secondary"
+              style={{ fontSize: '12px', padding: '8px 12px', whiteSpace: 'nowrap' }}
+            >
+              Clear
+            </button>
+          )}
+        </form>
+
+        {nlError && (
+          <div style={{
+            marginTop: '10px',
+            fontSize: '12px',
+            color: 'var(--color-risk-high)',
+            backgroundColor: 'var(--color-risk-high-subtle)',
+            padding: '6px 12px',
+            borderRadius: 'var(--radius-panel)',
+            border: '1px solid var(--color-risk-high)'
+          }}>
+            <strong>Query Error:</strong> {nlError}
+          </div>
+        )}
+
+        {nlResults && (
+          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
+            <span style={{ color: 'var(--color-muted-ink)' }}>Interpreted filter:</span>
+            {Object.entries(nlResults.filter || {}).map(([key, val]) => (
+              <span key={key} style={{
+                backgroundColor: 'var(--color-panel)',
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-panel)',
+                border: '1px solid var(--color-line)',
+                fontWeight: '600',
+                color: 'var(--color-ink)',
+              }}>
+                {key}: {String(val)}
+              </span>
+            ))}
+            <span style={{ fontSize: '11px', color: 'var(--color-muted-ink)', marginLeft: 'auto' }}>
+              Source: {nlResults.parsed_by === 'LLM' ? 'Gemini LLM' : 'Keyword Fallback'} &middot; Found {nlResults.count} matching orders
+            </span>
+          </div>
         )}
       </div>
 

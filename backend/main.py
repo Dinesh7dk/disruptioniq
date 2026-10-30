@@ -58,6 +58,7 @@ from backend.services.drafts import (
     send_simulated_draft,
     edit_draft,
 )
+from backend.services.nlquery import process_natural_query
 from pydantic import Field
 
 # ── App setup ──────────────────────────────────────────────────────────────────
@@ -152,6 +153,10 @@ class CreateDraftRequest(BaseModel):
 class EditDraftRequest(BaseModel):
     subject: str = Field(..., min_length=1)
     body: str = Field(..., min_length=1)
+
+
+class NaturalQueryRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="Natural language search question")
 
 
 
@@ -647,6 +652,22 @@ def edit_draft_endpoint(
     Resets status to DRAFT and requires re-approval.
     """
     return edit_draft(draft_id=id, subject=body.subject, body=body.body, user=user)
+
+
+# ── Natural Language Query Endpoint ───────────────────────────────────────────
+
+@app.post("/query/natural", tags=["query"])
+def natural_query_endpoint(
+    body: NaturalQueryRequest,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Natural-language order query endpoint.
+    Translates question to a validated JSON filter against a strict whitelist,
+    executes parameterized SQL, and returns filter used and matching orders.
+    """
+    return process_natural_query(body.query)
+
 
 
 
