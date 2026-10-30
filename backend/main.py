@@ -45,6 +45,7 @@ from backend.services.monitoring import (
     get_audit_logs,
     get_recent_events,
 )
+from backend.services.simulator import simulate_option, simulate_plan
 from pydantic import Field
 
 # ── App setup ──────────────────────────────────────────────────────────────────
@@ -122,6 +123,12 @@ class ModifyPlanRequest(BaseModel):
     new_quantity: int | None = None
     new_option_details: dict[str, Any] | None = None
     note: str | None = None
+
+
+class SimulationRequest(BaseModel):
+    action_type: str | None = None
+    option_type: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 
@@ -421,6 +428,70 @@ def list_audit_logs(
 def list_recent_events(limit: int = 50, user: dict = Depends(get_current_user)):
     """Last 50 audit and webhook events combined for a live feed."""
     return get_recent_events(limit=limit)
+
+
+# ── What-If Simulator Endpoints ───────────────────────────────────────────────
+
+@app.post("/disruptions/{id}/simulate", tags=["simulation"])
+def simulate_disruption_endpoint(
+    id: int,
+    body: SimulationRequest,
+    user: dict = Depends(
+        require_role("Operations Analyst", "Supply Chain Manager", "Procurement Approver", "Administrator")
+    ),
+):
+    """
+    Simulate a recovery action for a disruption inside a transaction that is always rolled back.
+    Allowed roles: Operations Analyst, Supply Chain Manager, Procurement Approver, Administrator.
+    """
+    act = body.action_type or body.option_type
+    if not act:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="action_type or option_type is required.",
+        )
+    return simulate_option(disruption_id=id, action_type=act, parameters=body.parameters)
+
+
+@app.post("/plans/{id}/simulate", tags=["simulation"])
+def simulate_plan_endpoint(
+    id: int,
+    body: SimulationRequest | None = None,
+    user: dict = Depends(
+        require_role("Operations Analyst", "Supply Chain Manager", "Procurement Approver", "Administrator")
+    ),
+):
+    """
+    Simulate the recovery option defined in a plan inside a transaction that is always rolled back.
+    Allowed roles: Operations Analyst, Supply Chain Manager, Procurement Approver, Administrator.
+    """
+    act = body.action_type or body.option_type if body else None
+    params = body.parameters if body else {}
+    if act:
+        conn = get_conn()
+        try:
+            plan = conn.execute(
+                "SELECT disruption_id, plan_payload FROM recovery_plans WHERE id = ?",
+                (id,),
+            ).fetchone()
+            if not plan:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Plan #{id} not found.",
+                )
+            disruption_id = plan["disruption_id"]
+            merged = _json.loads(plan["plan_payload"] or "{}")
+            merged.update(params)
+            return simulate_option(
+                disruption_id=disruption_id,
+                action_type=act,
+                parameters=merged,
+                plan_id=id,
+            )
+        finally:
+            conn.close()
+    return simulate_plan(plan_id=id, parameters_override=params)
+
 
 
 

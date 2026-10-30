@@ -8,6 +8,12 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
   const [feedbackMsg, setFeedbackMsg] = useState({ type: '', text: '' });
   const [activeTab, setActiveTab] = useState('options'); // 'options' | 'cascade' | 'orders'
 
+  // What-If Simulation State
+  const [simulations, setSimulations] = useState({});
+  const [simulating, setSimulating] = useState({});
+  const [simulatingAll, setSimulatingAll] = useState(false);
+  const [inspectedIndex, setInspectedIndex] = useState(0);
+
   useEffect(() => {
     fetchDetail();
   }, [disruptionId]);
@@ -29,6 +35,44 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
     }
   };
 
+  const handleSimulate = async (opt, index) => {
+    setSimulating(prev => ({ ...prev, [index]: true }));
+    setFeedbackMsg({ type: '', text: '' });
+    try {
+      const res = await apiFetch(`/disruptions/${disruptionId}/simulate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          action_type: opt.type,
+          parameters: {
+            source_warehouse_id: opt.details?.source_warehouse_id,
+            quantity: opt.details?.quantity || opt.details?.immediate_quantity,
+            order_id: opt.order?.id,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Simulation failed.');
+      }
+      setSimulations(prev => ({ ...prev, [index]: data }));
+      setInspectedIndex(index);
+    } catch (err) {
+      setFeedbackMsg({ type: 'error', text: `Simulation error: ${err.message}` });
+    } finally {
+      setSimulating(prev => ({ ...prev, [index]: false }));
+    }
+  };
+
+  const handleSimulateAll = async () => {
+    if (!disruption?.options?.length) return;
+    setSimulatingAll(true);
+    const topOpts = disruption.options.slice(0, 4);
+    for (let i = 0; i < topOpts.length; i++) {
+      await handleSimulate(topOpts[i], i);
+    }
+    setSimulatingAll(false);
+  };
+
   const handlePropose = async (opt) => {
     setProposing(true);
     setFeedbackMsg({ type: '', text: '' });
@@ -46,7 +90,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
           cost: opt.cost,
           new_delivery_date: opt.new_delivery_date,
           meets_deadline: opt.meets_deadline,
-        }
+        },
       };
 
       const res = await apiFetch(`/disruptions/${disruptionId}/plans`, {
@@ -61,7 +105,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
 
       setFeedbackMsg({
         type: 'success',
-        text: `Plan #${data.id} proposed successfully. It is now awaiting manager approval.`
+        text: `Plan #${data.id} proposed successfully. It is now awaiting manager approval.`,
       });
       fetchDetail();
       if (onPlanProposed) onPlanProposed();
@@ -93,9 +137,8 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
 
   const isLLM = disruption.ai_source === 'GEMINI_LLM';
   const sourceLabel = isLLM ? 'Google Gemini 2.5 Flash' : 'Deterministic rule-based fallback';
-
-  // Compare first 3-4 feasible options side by side
   const options = disruption.options || [];
+  const activeSim = simulations[inspectedIndex];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
@@ -116,7 +159,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
           border: `1px solid ${feedbackMsg.type === 'error' ? 'var(--color-risk-high)' : 'var(--color-risk-low)'}`,
           borderRadius: 'var(--radius-panel)',
           color: feedbackMsg.type === 'error' ? 'var(--color-risk-high)' : 'var(--color-risk-low)',
-          fontSize: '13px'
+          fontSize: '13px',
         }}>
           {feedbackMsg.text}
         </div>
@@ -157,7 +200,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
         </p>
       </div>
 
-      {/* View Switcher Tabs: Options Comparison | Cascade Map | Affected Orders */}
+      {/* View Switcher Tabs: Compare Options & Simulator | Cascade Map | Affected Orders */}
       <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--color-line)', paddingBottom: '4px' }}>
         <button
           type="button"
@@ -165,7 +208,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
           className={activeTab === 'options' ? 'btn-primary' : 'btn-secondary'}
           style={{ fontSize: '12px', padding: '4px 12px' }}
         >
-          Recovery options comparison ({options.length})
+          Compare recovery options &amp; What-If simulator ({options.length})
         </button>
         <button
           type="button"
@@ -185,102 +228,350 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
         </button>
       </div>
 
-      {/* Tab 1: Side-by-Side Recovery Options Comparison Table */}
+      {/* Tab 1: Compare Recovery Options & What-If Simulator Panel */}
       {activeTab === 'options' && (
-        <div className="desk-panel" style={{ overflowX: 'auto' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-line)' }}>
-            <h2 style={{ fontSize: '15px', fontWeight: '600' }}>
-              Feasible recovery options comparison
-            </h2>
-            <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
-              Verified by deterministic calculations for stock balance, deadline fit, and logistics cost.
-            </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Main Side-by-Side Comparison Panel */}
+          <div className="desk-panel" style={{ overflowX: 'auto' }}>
+            <div style={{
+              padding: '12px 16px',
+              borderBottom: '1px solid var(--color-line)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '8px',
+            }}>
+              <div>
+                <h2 style={{ fontSize: '15px', fontWeight: '600' }}>
+                  Compare recovery options side by side
+                </h2>
+                <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+                  Evaluated with deterministic feasibility, freight cost models, and zero database mutations.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleSimulateAll}
+                disabled={simulatingAll || options.length === 0}
+                className="btn-secondary"
+                style={{ fontSize: '12px', padding: '6px 12px' }}
+              >
+                {simulatingAll ? 'Simulating all options...' : 'Simulate all options side-by-side'}
+              </button>
+            </div>
+
+            {options.length === 0 ? (
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-muted-ink)' }}>
+                No feasible options meet the delivery deadlines.
+              </div>
+            ) : (
+              <table className="ops-table" style={{ minWidth: '760px' }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '180px', backgroundColor: '#EBF0EB' }}>Comparison attribute</th>
+                    {options.slice(0, 4).map((opt, i) => (
+                      <th
+                        key={i}
+                        onClick={() => setInspectedIndex(i)}
+                        style={{
+                          backgroundColor: inspectedIndex === i ? 'var(--color-primary-subtle)' : (i === 0 ? '#EEF2EC' : '#F1F3EE'),
+                          borderLeft: inspectedIndex === i ? '2px solid var(--color-primary)' : '1px solid var(--color-line)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: '600', color: inspectedIndex === i ? 'var(--color-primary)' : 'var(--color-ink)' }}>
+                            Option {i + 1} {i === 0 ? '(Recommended)' : ''}
+                          </span>
+                          {simulations[i] && (
+                            <span style={{ fontSize: '10px', color: 'var(--color-primary)', fontWeight: '600' }}>
+                              Simulated
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '11px', fontWeight: '400', color: 'var(--color-muted-ink)' }}>
+                          {opt.type.replace(/_/g, ' ')}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Target customer order</td>
+                    {options.slice(0, 4).map((opt, i) => (
+                      <td key={i} style={{ fontWeight: '500' }}>
+                        {opt.order?.code} ({opt.order?.customer})
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Projected delivery date</td>
+                    {options.slice(0, 4).map((opt, i) => (
+                      <td key={i} className="num">
+                        {simulations[i]?.new_delivery_date || opt.new_delivery_date}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Meets customer due date?</td>
+                    {options.slice(0, 4).map((opt, i) => {
+                      const meets = simulations[i] ? simulations[i].meets_deadline : opt.meets_deadline;
+                      return (
+                        <td key={i}>
+                          {meets ? (
+                            <span className="severity-pill severity-pill-low">Yes (On time)</span>
+                          ) : (
+                            <span className="severity-pill severity-pill-high">No (Late)</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Estimated freight cost</td>
+                    {options.slice(0, 4).map((opt, i) => (
+                      <td key={i} className="num" style={{ fontWeight: '600' }}>
+                        Rs. {(simulations[i]?.cost ?? opt.cost).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Simulated risk score change</td>
+                    {options.slice(0, 4).map((opt, i) => {
+                      const sim = simulations[i];
+                      if (!sim) {
+                        return (
+                          <td key={i} style={{ color: 'var(--color-muted-ink)', fontSize: '12px' }}>
+                            Not simulated yet
+                          </td>
+                        );
+                      }
+                      const red = sim.overall_after?.risk_reduction ?? 0;
+                      return (
+                        <td key={i}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="num" style={{ fontWeight: '600', color: 'var(--color-risk-low)' }}>
+                              {sim.overall_before?.avg_risk_score} &rarr; {sim.overall_after?.avg_risk_score}
+                            </span>
+                            <span className="severity-pill severity-pill-low" style={{ fontSize: '11px' }}>
+                              -{red} pts
+                            </span>
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Other orders sharing stock</td>
+                    {options.slice(0, 4).map((opt, i) => {
+                      const sim = simulations[i];
+                      if (!sim) {
+                        return (
+                          <td key={i} style={{ color: 'var(--color-muted-ink)', fontSize: '12px' }}>
+                            Click simulate to verify
+                          </td>
+                        );
+                      }
+                      const colCount = sim.collateral_orders_affected?.length || 0;
+                      const hasShortfall = sim.collateral_orders_affected?.some(c => c.deficit > 0);
+                      return (
+                        <td key={i}>
+                          {colCount === 0 ? (
+                            <span style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+                              None affected
+                            </span>
+                          ) : (
+                            <span
+                              className={`severity-pill ${hasShortfall ? 'severity-pill-high' : 'severity-pill-medium'}`}
+                              style={{ cursor: 'pointer' }}
+                              onClick={() => setInspectedIndex(i)}
+                            >
+                              {colCount} order{colCount > 1 ? 's' : ''} affected {hasShortfall ? '(Shortfall)' : '(Buffer safe)'}
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Action details</td>
+                    {options.slice(0, 4).map((opt, i) => (
+                      <td key={i} style={{ fontSize: '12px', color: 'var(--color-muted-ink)', lineHeight: '1.4' }}>
+                        {simulations[i]?.action_summary || opt.details?.description}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Simulation &amp; Proposal</td>
+                    {options.slice(0, 4).map((opt, i) => (
+                      <td key={i}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSimulate(opt, i)}
+                            disabled={simulating[i]}
+                            className="btn-secondary"
+                            style={{ fontSize: '11px', padding: '4px 8px', width: '100%' }}
+                          >
+                            {simulating[i] ? 'Simulating...' : (simulations[i] ? 'Re-simulate' : 'Simulate what-if')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePropose(opt)}
+                            disabled={proposing}
+                            className={i === 0 ? 'btn-primary' : 'btn-secondary'}
+                            style={{ fontSize: '11px', padding: '5px 8px', width: '100%' }}
+                          >
+                            {i === 0 ? 'Propose recommended' : 'Propose option'}
+                          </button>
+                        </div>
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            )}
           </div>
 
-          {options.length === 0 ? (
-            <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-muted-ink)' }}>
-              No options meet the delivery deadlines.
+          {/* Detailed What-If Simulation Inspection Box */}
+          {activeSim && (
+            <div className="desk-panel" style={{ padding: '16px 20px', borderLeft: '4px solid var(--color-primary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  <h3 style={{ fontSize: '15px', fontWeight: '700' }}>
+                    What-If simulation result: Option {inspectedIndex + 1} ({activeSim.action_type})
+                  </h3>
+                  <div style={{ fontSize: '12px', color: 'var(--color-muted-ink)', marginTop: '2px' }}>
+                    Executed inside a sandboxed transaction and strictly rolled back. Database row counts and stock values remain unchanged.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <div style={{ fontSize: '12px', textAlign: 'right' }}>
+                    <div style={{ color: 'var(--color-muted-ink)' }}>Simulated landed cost</div>
+                    <div className="num" style={{ fontWeight: '700', fontSize: '14px' }}>
+                      Rs. {activeSim.cost?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '12px', textAlign: 'right' }}>
+                    <div style={{ color: 'var(--color-muted-ink)' }}>Average risk score</div>
+                    <div className="num" style={{ fontWeight: '700', fontSize: '14px', color: 'var(--color-risk-low)' }}>
+                      {activeSim.overall_before?.avg_risk_score} &rarr; {activeSim.overall_after?.avg_risk_score} (-{activeSim.overall_after?.risk_reduction} pts)
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Before vs After Impact on Orders directly in Disruption */}
+              <div style={{ marginBottom: '16px' }}>
+                <h4 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: 'var(--color-ink)' }}>
+                  Direct order recovery before vs after comparison
+                </h4>
+                <table className="ops-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '85px' }}>Order</th>
+                      <th>Customer</th>
+                      <th style={{ width: '85px' }}>Due date</th>
+                      <th style={{ width: '100px' }}>Delivery date</th>
+                      <th style={{ width: '80px' }}>Buffer</th>
+                      <th style={{ width: '80px' }}>Shortfall</th>
+                      <th style={{ width: '120px' }}>Risk score</th>
+                      <th>Outcome</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeSim.affected_orders?.map((ord) => (
+                      <tr key={ord.order_id}>
+                        <td className="num" style={{ fontWeight: '600' }}>{ord.order_code}</td>
+                        <td>{ord.customer}</td>
+                        <td className="num">{ord.due_date}</td>
+                        <td className="num">
+                          <span style={{ textDecoration: 'line-through', color: 'var(--color-muted-ink)', marginRight: '6px' }}>
+                            {ord.before?.delivery_date}
+                          </span>
+                          <span style={{ fontWeight: '600', color: 'var(--color-primary)' }}>
+                            {ord.after?.delivery_date}
+                          </span>
+                        </td>
+                        <td className="num">
+                          {ord.before?.buffer_days}d &rarr; <strong>{ord.after?.buffer_days}d</strong>
+                        </td>
+                        <td className="num">
+                          {ord.before?.shortfall} &rarr; <strong>{ord.after?.shortfall}</strong>
+                        </td>
+                        <td className="num">
+                          <span className={`severity-pill severity-pill-${ord.before?.risk_level.toLowerCase()}`} style={{ marginRight: '4px' }}>
+                            {ord.before?.risk_score}
+                          </span>
+                          &rarr;
+                          <span className={`severity-pill severity-pill-${ord.after?.risk_level.toLowerCase()}`} style={{ marginLeft: '4px' }}>
+                            {ord.after?.risk_score}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`severity-pill ${ord.status === 'IMPROVED' ? 'severity-pill-low' : 'severity-pill-medium'}`}>
+                            {ord.status} ({ord.risk_score_delta} pts)
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Collateral Orders Sharing Same Stock */}
+              <div>
+                <h4 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: 'var(--color-ink)' }}>
+                  Collateral impact: Other customer orders sharing the same inventory stock
+                </h4>
+                {activeSim.collateral_orders_affected?.length === 0 ? (
+                  <div style={{ fontSize: '13px', color: 'var(--color-muted-ink)', padding: '8px 0' }}>
+                    No other orders share stock with this recovery action. Zero collateral impact.
+                  </div>
+                ) : (
+                  <table className="ops-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '85px' }}>Order</th>
+                        <th>Customer</th>
+                        <th style={{ width: '85px' }}>Due date</th>
+                        <th>Warehouse</th>
+                        <th className="numeric" style={{ width: '80px' }}>Order qty</th>
+                        <th className="numeric" style={{ width: '95px' }}>Stock before</th>
+                        <th className="numeric" style={{ width: '95px' }}>Stock after</th>
+                        <th style={{ width: '130px' }}>Impact status</th>
+                        <th>Analysis note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeSim.collateral_orders_affected?.map((col) => (
+                        <tr key={col.order_id} className={col.deficit > 0 ? 'row-high' : ''}>
+                          <td className="num" style={{ fontWeight: '600' }}>{col.order_code}</td>
+                          <td>{col.customer}</td>
+                          <td className="num">{col.due_date}</td>
+                          <td>{col.warehouse_city}</td>
+                          <td className="numeric num">{col.order_quantity}</td>
+                          <td className="numeric num">{col.stock_before}</td>
+                          <td className="numeric num" style={{ fontWeight: '600', color: col.deficit > 0 ? 'var(--color-risk-high)' : 'inherit' }}>
+                            {col.stock_after}
+                          </td>
+                          <td>
+                            <span className={`severity-pill ${col.deficit > 0 ? 'severity-pill-high' : 'severity-pill-medium'}`}>
+                              {col.deficit > 0 ? `Shortfall: ${col.deficit}` : 'Buffer reduced'}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+                            {col.impact_note}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
-          ) : (
-            <table className="ops-table" style={{ minWidth: '700px' }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '160px', backgroundColor: '#EBF0EB' }}>Comparison attribute</th>
-                  {options.slice(0, 4).map((opt, i) => (
-                    <th key={i} style={{ backgroundColor: i === 0 ? 'var(--color-primary-subtle)' : '#F1F3EE' }}>
-                      <div style={{ fontWeight: '600', color: i === 0 ? 'var(--color-primary)' : 'var(--color-ink)' }}>
-                        Option {i + 1} {i === 0 ? '(Recommended)' : ''}
-                      </div>
-                      <div style={{ fontSize: '11px', fontWeight: '400', color: 'var(--color-muted-ink)' }}>
-                        {opt.type.replace(/_/g, ' ')}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Target customer order</td>
-                  {options.slice(0, 4).map((opt, i) => (
-                    <td key={i} style={{ fontWeight: '500' }}>
-                      {opt.order?.code} ({opt.order?.customer})
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Projected delivery date</td>
-                  {options.slice(0, 4).map((opt, i) => (
-                    <td key={i} className="num">
-                      {opt.new_delivery_date}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Meets customer due date?</td>
-                  {options.slice(0, 4).map((opt, i) => (
-                    <td key={i}>
-                      {opt.meets_deadline ? (
-                        <span className="severity-pill severity-pill-low">Yes (On time)</span>
-                      ) : (
-                        <span className="severity-pill severity-pill-high">No (Late)</span>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Estimated freight cost</td>
-                  {options.slice(0, 4).map((opt, i) => (
-                    <td key={i} className="num" style={{ fontWeight: '600' }}>
-                      Rs. {opt.cost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Action details</td>
-                  {options.slice(0, 4).map((opt, i) => (
-                    <td key={i} style={{ fontSize: '12px', color: 'var(--color-muted-ink)', lineHeight: '1.4' }}>
-                      {opt.details?.description}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Action</td>
-                  {options.slice(0, 4).map((opt, i) => (
-                    <td key={i}>
-                      <button
-                        type="button"
-                        onClick={() => handlePropose(opt)}
-                        disabled={proposing}
-                        className={i === 0 ? 'btn-primary' : 'btn-secondary'}
-                        style={{ fontSize: '12px', padding: '5px 10px', width: '100%' }}
-                      >
-                        {i === 0 ? 'Propose recommended' : 'Propose this option'}
-                      </button>
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
           )}
         </div>
       )}
@@ -306,7 +597,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
             padding: '24px',
             backgroundColor: '#FFFFFF',
             border: '1px solid var(--color-line)',
-            borderRadius: 'var(--radius-panel)'
+            borderRadius: 'var(--radius-panel)',
           }}>
             {/* Stage 1: Supplier */}
             <div style={{ textAlign: 'center', minWidth: '120px' }}>
