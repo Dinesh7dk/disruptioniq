@@ -184,8 +184,8 @@ def seed(db_path: Path = DB_PATH):
         code, sc, pc, wh, qty, st, eta, dly = sh
         conn.execute(
             """INSERT INTO shipments(code,supplier_id,product_id,dest_warehouse_id,
-               quantity,status,expected_arrival,delay_days) VALUES(?,?,?,?,?,?,?,?);""",
-            (code, sid(sc), pid(pc), wh, qty, st, eta, dly)
+               quantity,status,expected_arrival,current_eta,delay_days) VALUES(?,?,?,?,?,?,?,?,?);""",
+            (code, sid(sc), pid(pc), wh, qty, st, eta, eta, dly)
         )
     conn.commit()
     print(f"[seed] {len(shipments)} shipments inserted.")

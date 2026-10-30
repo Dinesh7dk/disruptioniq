@@ -26,6 +26,9 @@ from backend.services.import_service import (
     import_shipments_json,
     import_orders_json,
 )
+from backend.db import get_conn
+from backend.services.detection_service import run_detection
+from pydantic import Field
 
 # ── App setup ──────────────────────────────────────────────────────────────────
 
@@ -70,6 +73,13 @@ class MeResponse(BaseModel):
     id: int
     username: str
     role: str
+
+
+class CarrierWebhookRequest(BaseModel):
+    event_id: str = Field(..., min_length=1)
+    shipment_ref: str = Field(..., min_length=1)
+    status: str = Field(..., min_length=1)
+    new_eta: str = Field(..., min_length=1)
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -147,4 +157,85 @@ def import_json_endpoint(
     if records and "lines" in records[0]:
         return import_orders_json(records, actor_id=int(user["sub"]))
     return import_shipments_json(records, actor_id=int(user["sub"]))
+
+
+# ── Webhook endpoints ─────────────────────────────────────────────────────────
+
+@app.post("/webhooks/carrier", tags=["webhooks"])
+def carrier_webhook(event: CarrierWebhookRequest):
+    """
+    Simulated carrier webhook.
+    - Idempotent: duplicate event_id returns {"status": "duplicate, ignored"} without changes.
+    - Updates shipment current_eta and status in one transaction.
+    - 404 on unknown shipment.
+    - 422 on invalid payload (handled by Pydantic).
+    - Calls run_detection(shipment_id) after transaction commits.
+    """
+    conn = get_conn()
+    shipment_id = None
+    try:
+        # Check if event already exists
+        existing_event = conn.execute(
+            "SELECT event_id FROM webhook_events WHERE event_id = ?",
+            (event.event_id,),
+        ).fetchone()
+
+        if existing_event:
+            return {"status": "duplicate, ignored"}
+
+        # Check shipment exists
+        shipment = conn.execute(
+            "SELECT id, code, expected_arrival, status FROM shipments WHERE code = ?",
+            (event.shipment_ref,),
+        ).fetchone()
+
+        if not shipment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Shipment '{event.shipment_ref}' not found",
+            )
+
+        shipment_id = shipment["id"]
+
+        # In ONE transaction: record event + update shipment + write audit log
+        conn.execute("BEGIN TRANSACTION;")
+        
+        conn.execute(
+            """INSERT INTO webhook_events (event_id, source, event_type, payload, status, processed_at)
+               VALUES (?, 'carrier', 'CARRIER_UPDATE', ?, 'PROCESSED', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))""",
+            (event.event_id, _json.dumps(event.model_dump())),
+        )
+
+        conn.execute(
+            """UPDATE shipments
+               SET current_eta = ?, status = ?
+               WHERE id = ?""",
+            (event.new_eta, event.status, shipment_id),
+        )
+
+        conn.execute(
+            """INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, new_value)
+               VALUES (NULL, 'CARRIER_WEBHOOK_PROCESSED', 'shipments', ?, ?)""",
+            (shipment_id, _json.dumps(event.model_dump())),
+        )
+
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process webhook: {str(e)}",
+        )
+    finally:
+        conn.close()
+
+    # Trigger detection outside the transaction
+    if shipment_id is not None:
+        run_detection(shipment_id)
+
+    return {"status": "processed", "shipment_id": shipment_id}
+
 
