@@ -27,7 +27,7 @@ from backend.services.import_service import (
     import_orders_json,
 )
 from backend.db import get_conn
-from backend.services.detection_service import run_detection
+from backend.services.detection import run_detection
 from pydantic import Field
 
 # ── App setup ──────────────────────────────────────────────────────────────────
