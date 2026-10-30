@@ -230,6 +230,52 @@ def test_simulation_before_after_comparison(client, tokens):
         assert "impact_note" in col
 
 
+def test_simulation_collateral_order_detection(client, tokens):
+    """
+    Explicitly test that when another open order shares stock at the source warehouse,
+    the simulation detects it, reports stock before/after, and flags when a deficit is created.
+    """
+    auth = {"Authorization": f"Bearer {tokens['manager']}"}
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO orders (id, code, customer, priority, status, due_date) VALUES (9999, 'O-COLLATERAL', 'Apex Labs', 'MEDIUM', 'OPEN', '2026-11-15')"
+        )
+        conn.execute(
+            "INSERT INTO order_lines (order_id, product_id, warehouse_id, quantity) VALUES (9999, 1, 3, 100)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    try:
+        res = client.post(
+            "/disruptions/1/simulate",
+            headers=auth,
+            json={
+                "action_type": "REALLOCATE_STOCK",
+                "parameters": {"source_warehouse_id": 3, "quantity": 250},
+            },
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data["collateral_orders_affected"]) >= 1
+        collateral = next(c for c in data["collateral_orders_affected"] if c["order_id"] == 9999)
+        assert collateral["order_code"] == "O-COLLATERAL"
+        assert collateral["warehouse_id"] == 3
+        assert collateral["order_quantity"] == 100
+        assert collateral["stock_before"] == 280
+        assert collateral["stock_after"] == 30
+        assert collateral["deficit"] == 70
+        assert collateral["status"] == "SHORTFALL_CREATED"
+    finally:
+        conn = get_conn()
+        conn.execute("DELETE FROM order_lines WHERE order_id = 9999")
+        conn.execute("DELETE FROM orders WHERE id = 9999")
+        conn.commit()
+        conn.close()
+
+
 def test_simulation_expedite_option(client, tokens):
     """Verify simulation of EXPEDITE_ORDER option."""
     auth = {"Authorization": f"Bearer {tokens['analyst']}"}
