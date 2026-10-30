@@ -4,11 +4,13 @@ FastAPI application entry point.
 """
 import os
 from contextlib import asynccontextmanager
+from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import json as _json
 
 # Load .env before any module reads os.getenv
 load_dotenv()
@@ -18,6 +20,11 @@ from backend.auth import (
     create_access_token,
     get_current_user,
     require_role,
+)
+from backend.services.import_service import (
+    import_shipments_csv,
+    import_shipments_json,
+    import_orders_json,
 )
 
 # ── App setup ──────────────────────────────────────────────────────────────────
@@ -102,3 +109,42 @@ def analyst_ping(
 ):
     """Reachable by Operations Analyst or Supply Chain Manager."""
     return {"message": f"Hello, {user['username']}!"}
+
+
+# ── Import endpoints ──────────────────────────────────────────────────────────
+
+@app.post("/import/shipments/csv", tags=["import"])
+@app.post("/import/csv", tags=["import"])
+async def import_csv_endpoint(
+    file: UploadFile = File(...),
+    user: dict = Depends(require_role("Administrator", "Operations Analyst")),
+):
+    content = await file.read()
+    return import_shipments_csv(content, actor_id=int(user["sub"]))
+
+
+@app.post("/import/shipments/json", tags=["import"])
+def import_shipments_json_endpoint(
+    records: list[dict[str, Any]],
+    user: dict = Depends(require_role("Administrator", "Operations Analyst")),
+):
+    return import_shipments_json(records, actor_id=int(user["sub"]))
+
+
+@app.post("/import/orders/json", tags=["import"])
+def import_orders_json_endpoint(
+    records: list[dict[str, Any]],
+    user: dict = Depends(require_role("Administrator", "Operations Analyst")),
+):
+    return import_orders_json(records, actor_id=int(user["sub"]))
+
+
+@app.post("/import/json", tags=["import"])
+def import_json_endpoint(
+    records: list[dict[str, Any]],
+    user: dict = Depends(require_role("Administrator", "Operations Analyst")),
+):
+    if records and "lines" in records[0]:
+        return import_orders_json(records, actor_id=int(user["sub"]))
+    return import_shipments_json(records, actor_id=int(user["sub"]))
+
