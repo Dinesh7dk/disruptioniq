@@ -1,76 +1,109 @@
-import React from 'react';
-import { Bell, ArrowLeft, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { apiFetch } from './api';
 
-export default function NotificationsView({ notifications, onBack, onMarkAllRead }) {
+export default function NotificationsView({ onBack }) {
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  const fetchNotifications = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await apiFetch('/notifications?limit=50');
+      if (!res.ok) {
+        throw new Error(`Failed to load notifications (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      setNotifications(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMarkAllRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+  };
+
   return (
-    <div style={{ maxWidth: '800px', margin: '0 auto', padding: '24px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
-        <button
-          onClick={onBack}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: 'transparent',
-            border: '1px solid var(--border)',
-            color: 'var(--text-main)',
-            padding: '8px 14px'
-          }}
-        >
-          <ArrowLeft size={16} /> Back to Dashboard
+    <div style={{ maxWidth: '850px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button onClick={onBack} className="btn-secondary">
+          ← Back to Dashboard
         </button>
-
-        <h2 style={{ fontSize: '20px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Bell size={20} color="var(--primary)" /> Notifications
-        </h2>
-
-        {notifications.length > 0 && (
-          <button
-            onClick={onMarkAllRead}
-            style={{
-              background: 'var(--bg-subtle)',
-              border: '1px solid var(--border)',
-              color: 'var(--text-muted)',
-              padding: '6px 12px',
-              fontSize: '12px'
-            }}
-          >
-            Mark all read
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span className="kpi-label">Notification Feed</span>
+          {notifications.length > 0 && (
+            <button onClick={handleMarkAllRead} className="btn-secondary" style={{ padding: '4px 10px' }}>
+              Mark All Read
+            </button>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {notifications.length === 0 ? (
-          <div className="card" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-dim)' }}>
-            No notifications available
+      {error && (
+        <div style={{
+          padding: '10px 14px',
+          backgroundColor: 'var(--status-high-bg)',
+          border: '1px solid var(--status-high-border)',
+          borderRadius: '4px',
+          color: 'var(--status-high-text)',
+          fontSize: '12px'
+        }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {loading ? (
+          [1, 2, 3].map((n) => <div key={n} className="skeleton" style={{ height: '70px', width: '100%' }} />)
+        ) : notifications.length === 0 ? (
+          <div className="surface" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+            No new notifications at this time.
           </div>
         ) : (
-          notifications.map((n, i) => (
-            <div key={n.id || i} className="card" style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '14px',
-              borderLeft: n.is_read ? '1px solid var(--border)' : '4px solid var(--primary)'
-            }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+          notifications.map((n) => (
+            <div
+              key={n.id}
+              className="surface"
+              style={{
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
-              }}>
-                <Bell size={16} color="var(--primary)" />
-              </div>
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: '12px',
+                padding: '12px 16px',
+                opacity: n.is_read ? 0.75 : 1
+              }}
+            >
               <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: '600', color: 'var(--text-main)' }}>{n.title}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{n.created_at || 'Just now'}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <span className={`badge ${n.type === 'APPROVAL' ? 'badge-accent' : 'badge-neutral'}`}>
+                    {n.type}
+                  </span>
+                  <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '13px' }}>
+                    {n.title}
+                  </span>
+                  {!n.is_read && (
+                    <span style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      backgroundColor: '#3b82f6'
+                    }} />
+                  )}
                 </div>
-                <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{n.body}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  {n.body}
+                </div>
+              </div>
+              <div className="mono" style={{ fontSize: '11px', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+                {n.created_at}
               </div>
             </div>
           ))

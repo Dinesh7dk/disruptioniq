@@ -1,6 +1,7 @@
 /**
+ * frontend/src/api.js
  * In-memory JWT token and user session store.
- * The token is stored purely in JavaScript memory (not in localStorage or cookies).
+ * The token is stored purely in JavaScript memory (never in localStorage or cookies).
  */
 let inMemoryToken = null;
 let inMemoryUser = null;
@@ -18,7 +19,11 @@ export const clearAuth = () => {
 export const getToken = () => inMemoryToken;
 export const getUser = () => inMemoryUser;
 
-export const apiFetch = async (url, options = {}) => {
+const API_BASE = 'http://127.0.0.1:8000';
+
+export const apiFetch = async (endpoint, options = {}) => {
+  const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+  
   const headers = {
     'Content-Type': 'application/json',
     ...(options.headers || {})
@@ -29,9 +34,11 @@ export const apiFetch = async (url, options = {}) => {
   }
 
   const response = await fetch(url, { ...options, headers });
+  
   if (response.status === 401) {
     clearAuth();
     window.dispatchEvent(new CustomEvent('auth-expired'));
   }
+  
   return response;
 };
