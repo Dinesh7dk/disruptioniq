@@ -112,6 +112,7 @@ class MeResponse(BaseModel):
     id: int
     username: str
     role: str
+    demo_mode: bool = False
 
 
 class CarrierWebhookRequest(BaseModel):
@@ -179,8 +180,14 @@ def login(body: LoginRequest):
 
 @app.get("/me", response_model=MeResponse, tags=["auth"])
 def me(user: dict = Depends(get_current_user)):
-    """Return the currently authenticated user's identity."""
-    return MeResponse(id=int(user["sub"]), username=user["username"], role=user["role"])
+    """Return the currently authenticated user's identity and demo status."""
+    is_demo = os.getenv("DEMO_MODE", "false").lower() == "true"
+    return MeResponse(
+        id=int(user["sub"]),
+        username=user["username"],
+        role=user["role"],
+        demo_mode=is_demo,
+    )
 
 
 # ── Role-restricted example endpoints (used in tests) ─────────────────────────
@@ -669,9 +676,63 @@ def natural_query_endpoint(
     return process_natural_query(body.query)
 
 
+# ── Demo Endpoints (Restricted to Administrator & DEMO_MODE=true) ──────────────
+
+from backend.services.demo import (
+    reset_demo_database,
+    trigger_scenario_1,
+    trigger_scenario_2,
+    check_demo_mode,
+)
 
 
+@app.get("/demo/status", tags=["demo"])
+def demo_status(user: dict = Depends(get_current_user)):
+    """Check whether demo mode is enabled and user is Administrator."""
+    return {
+        "demo_mode": os.getenv("DEMO_MODE", "false").lower() == "true",
+        "is_admin": user.get("role") == "Administrator",
+    }
 
 
+@app.post("/demo/reset", tags=["demo"])
+def demo_reset(user: dict = Depends(require_role("Administrator"))):
+    """
+    Reset and reseed the entire operational database.
+    Hard Rule 13: Works only when DEMO_MODE=true and only for Administrator.
+    """
+    check_demo_mode()
+    return reset_demo_database(actor_id=int(user["sub"]))
 
 
+@app.post("/demo/scenario/{scenario_id}", tags=["demo"])
+def demo_scenario(scenario_id: int, user: dict = Depends(require_role("Administrator"))):
+    """
+    Trigger scenario 1 (Supplier delay) or 2 (Stock shortage).
+    Hard Rule 13: Works only when DEMO_MODE=true and only for Administrator.
+    """
+    check_demo_mode()
+    actor_id = int(user["sub"])
+    if scenario_id == 1:
+        return trigger_scenario_1(actor_id=actor_id)
+    elif scenario_id == 2:
+        return trigger_scenario_2(actor_id=actor_id)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported scenario '{scenario_id}'. Only scenarios 1 and 2 are supported.",
+        )
+
+
+@app.post("/demo/scenario/1", tags=["demo"])
+def demo_scenario_1(user: dict = Depends(require_role("Administrator"))):
+    """Trigger Scenario 1 directly."""
+    check_demo_mode()
+    return trigger_scenario_1(actor_id=int(user["sub"]))
+
+
+@app.post("/demo/scenario/2", tags=["demo"])
+def demo_scenario_2(user: dict = Depends(require_role("Administrator"))):
+    """Trigger Scenario 2 directly."""
+    check_demo_mode()
+    return trigger_scenario_2(actor_id=int(user["sub"]))

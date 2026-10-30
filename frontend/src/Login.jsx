@@ -33,7 +33,13 @@ export default function Login({ onLoginSuccess }) {
 
       const data = await res.json();
       setAuth(data.access_token, { username: data.username, role: data.role });
-      onLoginSuccess({ username: data.username, role: data.role });
+      const meRes = await apiFetch('/me');
+      let userData = { username: data.username, role: data.role, demo_mode: false };
+      if (meRes.ok) {
+        userData = await meRes.json();
+      }
+      setAuth(data.access_token, userData);
+      onLoginSuccess(userData);
     } catch (err) {
       setError(err.message);
     } finally {

@@ -7,6 +7,7 @@ import AuditLogView from './AuditLogView';
 import NotificationsView from './NotificationsView';
 import LiveEventsFeed from './LiveEventsFeed';
 import DraftsView from './DraftsView';
+import DemoBar from './DemoBar';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -105,7 +106,13 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setAuth(data.access_token, { username: data.username, role: data.role });
-        setCurrentUser({ username: data.username, role: data.role });
+        const meRes = await apiFetch('/me');
+        let userData = { username: data.username, role: data.role, demo_mode: false };
+        if (meRes.ok) {
+          userData = await meRes.json();
+        }
+        setAuth(data.access_token, userData);
+        setCurrentUser(userData);
       }
     } catch (err) {
       console.error('Role switch failed', err);
@@ -130,9 +137,17 @@ export default function App() {
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', backgroundColor: 'var(--color-paper)' }}>
-      {/* Left Slim Navigation Rail */}
-      <aside style={{
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--color-paper)' }}>
+      {/* Demo bar: visible only to Administrator in demo mode */}
+      <DemoBar
+        currentUser={currentUser}
+        onRoleSwitch={handleRoleSwitch}
+        onActionComplete={loadAllData}
+      />
+
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {/* Left Slim Navigation Rail */}
+        <aside style={{
         width: '220px',
         borderRight: '1px solid var(--color-line)',
         backgroundColor: 'var(--color-panel)',
@@ -351,6 +366,7 @@ export default function App() {
           />
         )}
       </main>
+      </div>
     </div>
   );
 }
