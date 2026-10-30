@@ -28,6 +28,7 @@ from backend.services.import_service import (
 )
 from backend.db import get_conn
 from backend.services.detection import run_detection
+from backend.services.recovery import generate_options
 from pydantic import Field
 
 # ── App setup ──────────────────────────────────────────────────────────────────
@@ -237,5 +238,22 @@ def carrier_webhook(event: CarrierWebhookRequest):
         run_detection(shipment_id)
 
     return {"status": "processed", "shipment_id": shipment_id}
+
+
+# ── Disruption endpoints ──────────────────────────────────────────────────────
+
+@app.get("/disruptions/{id}/options", tags=["disruptions"])
+def get_disruption_options(
+    id: int,
+    order_id: int | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Returns only verified feasible recovery options for the given disruption.
+    No database writes and no LLM.
+    """
+    options = generate_options(disruption_id=id, order_id=order_id)
+    return {"disruption_id": id, "options_count": len(options), "options": options}
+
 
 
