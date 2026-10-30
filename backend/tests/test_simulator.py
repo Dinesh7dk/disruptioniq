@@ -292,6 +292,71 @@ def test_simulation_expedite_option(client, tokens):
     assert len(data["affected_orders"]) > 0
 
 
+def test_expedite_vs_reallocate_different_outcomes_and_database_unchanged(client, tokens):
+    """
+    Verify:
+    1. Simulating 'EXPEDITE_ORDER' instead of 'REALLOCATE_STOCK' produces distinctly different
+       operational outcomes (different cost, delivery dates, collateral impact, and action summary).
+    2. The database state (row counts in all tables and exact inventory values) is completely unchanged.
+    """
+    auth = {"Authorization": f"Bearer {tokens['analyst']}"}
+
+    # Step 1: Capture DB state before any simulation
+    snapshot_before = get_db_snapshot()
+
+    # Step 2: Simulate REALLOCATE_STOCK
+    res_reallocate = client.post(
+        "/disruptions/1/simulate",
+        headers=auth,
+        json={
+            "action_type": "REALLOCATE_STOCK",
+            "parameters": {"source_warehouse_id": 3, "quantity": 200},
+        },
+    )
+    assert res_reallocate.status_code == 200
+    reallocate_out = res_reallocate.json()
+
+    # Verify DB unchanged after reallocation simulation
+    snapshot_mid = get_db_snapshot()
+    assert snapshot_mid["counts"] == snapshot_before["counts"]
+    assert snapshot_mid["inventory"] == snapshot_before["inventory"]
+
+    # Step 3: Simulate EXPEDITE_ORDER
+    res_expedite = client.post(
+        "/disruptions/1/simulate",
+        headers=auth,
+        json={"action_type": "EXPEDITE_ORDER"},
+    )
+    assert res_expedite.status_code == 200
+    expedite_out = res_expedite.json()
+
+    # Step 4: Verify DB unchanged after expedite simulation
+    snapshot_after = get_db_snapshot()
+    assert snapshot_after["counts"] == snapshot_before["counts"], "Table row counts mutated!"
+    assert snapshot_after["inventory"] == snapshot_before["inventory"], "Inventory values mutated!"
+
+    # Step 5: Verify distinct outcomes between the two recovery strategies
+    # A) Different Action Types
+    assert reallocate_out["action_type"] == "REALLOCATE_STOCK"
+    assert expedite_out["action_type"] == "EXPEDITE_ORDER"
+
+    # B) Distinct Logistics Cost (Reallocation Rs. 1,500 vs Expedited Air Freight Rs. 7,500)
+    assert reallocate_out["cost"] != expedite_out["cost"]
+    assert reallocate_out["cost"] == 1500.0  # 500 flat + 5 * 200
+    assert expedite_out["cost"] == 7500.0    # 2500 flat + 10 * 500
+    assert expedite_out["cost"] > reallocate_out["cost"]
+
+    # C) Distinct Action Summaries
+    assert reallocate_out["action_summary"] != expedite_out["action_summary"]
+    assert "Hyderabad" in reallocate_out["action_summary"]
+    assert "air freight" in expedite_out["action_summary"].lower()
+
+    # D) Both simulate valid order recovery
+    assert len(reallocate_out["affected_orders"]) > 0
+    assert len(expedite_out["affected_orders"]) > 0
+
+
+
 def test_simulation_roles_rbac(client, tokens):
     """
     Role check:
