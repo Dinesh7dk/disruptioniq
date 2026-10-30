@@ -47,6 +47,17 @@ from backend.services.monitoring import (
     get_disruption_graph,
 )
 from backend.services.simulator import simulate_option, simulate_plan
+from backend.services.drafts import (
+    create_order_draft,
+    create_disruption_draft,
+    get_order_drafts,
+    get_disruption_drafts,
+    get_all_drafts,
+    get_draft_by_id,
+    approve_draft,
+    send_simulated_draft,
+    edit_draft,
+)
 from pydantic import Field
 
 # ── App setup ──────────────────────────────────────────────────────────────────
@@ -130,6 +141,17 @@ class SimulationRequest(BaseModel):
     action_type: str | None = None
     option_type: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class CreateDraftRequest(BaseModel):
+    audience: str = Field(..., description="CUSTOMER or SUPPLIER")
+    order_id: int | None = None
+    custom_facts: dict[str, Any] | None = None
+
+
+class EditDraftRequest(BaseModel):
+    subject: str = Field(..., min_length=1)
+    body: str = Field(..., min_length=1)
 
 
 
@@ -501,6 +523,131 @@ def simulate_plan_endpoint(
         finally:
             conn.close()
     return simulate_plan(plan_id=id, parameters_override=params)
+
+
+# ── Drafted Messages Endpoints ────────────────────────────────────────────────
+
+@app.post("/orders/{id}/drafts", tags=["drafts"])
+def create_order_draft_endpoint(
+    id: int,
+    body: CreateDraftRequest,
+    user: dict = Depends(
+        require_role("Operations Analyst", "Supply Chain Manager", "Procurement Approver", "Administrator")
+    ),
+):
+    """
+    Create an LLM-drafted or template-fallback communication draft for an order.
+    Audience must be CUSTOMER or SUPPLIER.
+    """
+    return create_order_draft(
+        order_id=id,
+        audience=body.audience,
+        user=user,
+        custom_facts=body.custom_facts,
+    )
+
+
+@app.get("/orders/{id}/drafts", tags=["drafts"])
+def list_order_drafts_endpoint(
+    id: int,
+    user: dict = Depends(get_current_user),
+):
+    """List all message drafts for a specific order."""
+    return get_order_drafts(order_id=id)
+
+
+@app.post("/disruptions/{id}/drafts", tags=["drafts"])
+def create_disruption_draft_endpoint(
+    id: int,
+    body: CreateDraftRequest,
+    user: dict = Depends(
+        require_role("Operations Analyst", "Supply Chain Manager", "Procurement Approver", "Administrator")
+    ),
+):
+    """
+    Create an LLM-drafted or template-fallback communication draft for a disruption.
+    Audience must be CUSTOMER or SUPPLIER.
+    """
+    return create_disruption_draft(
+        disruption_id=id,
+        audience=body.audience,
+        user=user,
+        order_id=body.order_id,
+        custom_facts=body.custom_facts,
+    )
+
+
+@app.get("/disruptions/{id}/drafts", tags=["drafts"])
+def list_disruption_drafts_endpoint(
+    id: int,
+    user: dict = Depends(get_current_user),
+):
+    """List all message drafts for a specific disruption."""
+    return get_disruption_drafts(disruption_id=id)
+
+
+@app.get("/drafts", tags=["drafts"])
+def list_all_drafts_endpoint(
+    disruption_id: int | None = None,
+    order_id: int | None = None,
+    status: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """List message drafts, optionally filtered by disruption_id, order_id, or status."""
+    return get_all_drafts(disruption_id=disruption_id, order_id=order_id, status_filter=status)
+
+
+@app.get("/drafts/{id}", tags=["drafts"])
+def get_draft_endpoint(
+    id: int,
+    user: dict = Depends(get_current_user),
+):
+    """Retrieve details of a single message draft."""
+    return get_draft_by_id(draft_id=id)
+
+
+@app.post("/drafts/{id}/approve", tags=["drafts"])
+def approve_draft_endpoint(
+    id: int,
+    user: dict = Depends(
+        require_role("Supply Chain Manager", "Procurement Approver", "Operations Analyst", "Administrator")
+    ),
+):
+    """
+    Approve a communication draft.
+    Separation of duty (Rule 4): approver must be a different user than the creator.
+    """
+    return approve_draft(draft_id=id, user=user)
+
+
+@app.post("/drafts/{id}/send", tags=["drafts"])
+def send_draft_endpoint(
+    id: int,
+    user: dict = Depends(
+        require_role("Operations Analyst", "Supply Chain Manager", "Procurement Approver", "Administrator")
+    ),
+):
+    """
+    Simulate sending an approved draft.
+    Marks status as SENT_SIMULATED and logs to audit_logs.
+    """
+    return send_simulated_draft(draft_id=id, user=user)
+
+
+@app.put("/drafts/{id}", tags=["drafts"])
+def edit_draft_endpoint(
+    id: int,
+    body: EditDraftRequest,
+    user: dict = Depends(
+        require_role("Operations Analyst", "Supply Chain Manager", "Procurement Approver", "Administrator")
+    ),
+):
+    """
+    Edit a draft's subject and body before sending.
+    Resets status to DRAFT and requires re-approval.
+    """
+    return edit_draft(draft_id=id, subject=body.subject, body=body.body, user=user)
+
 
 
 

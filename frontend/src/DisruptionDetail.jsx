@@ -129,12 +129,96 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
   const [graphLoading, setGraphLoading] = useState(false);
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
 
+  // Drafts State
+  const [disruptionDrafts, setDisruptionDrafts] = useState([]);
+  const [draftAudience, setDraftAudience] = useState('CUSTOMER');
+  const [draftOrderId, setDraftOrderId] = useState('');
+  const [drafting, setDrafting] = useState(false);
+  const [expandedDrafts, setExpandedDrafts] = useState({});
+
   const nodeTypes = useMemo(() => ({ default: CascadeNode }), []);
 
   useEffect(() => {
     fetchDetail();
     fetchGraph();
+    fetchDisruptionDrafts();
   }, [disruptionId]);
+
+  const fetchDisruptionDrafts = async () => {
+    try {
+      const res = await apiFetch(`/disruptions/${disruptionId}/drafts`);
+      if (res.ok) {
+        setDisruptionDrafts(await res.json());
+      }
+    } catch (err) {
+      console.error('Failed to load drafts for disruption', err);
+    }
+  };
+
+  const handleCreateDraft = async (e) => {
+    e.preventDefault();
+    setDrafting(true);
+    setFeedbackMsg({ type: '', text: '' });
+    try {
+      const res = await apiFetch(`/disruptions/${disruptionId}/drafts`, {
+        method: 'POST',
+        body: JSON.stringify({
+          audience: draftAudience,
+          order_id: draftAudience === 'CUSTOMER' ? (draftOrderId ? Number(draftOrderId) : (disruption?.impacts?.[0]?.order_id || undefined)) : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Could not generate draft.');
+      }
+      setFeedbackMsg({
+        type: 'success',
+        text: `Draft #${data.id} created successfully. Awaiting second-user review & approval.`,
+      });
+      fetchDisruptionDrafts();
+      setExpandedDrafts((prev) => ({ ...prev, [data.id]: true }));
+    } catch (err) {
+      setFeedbackMsg({ type: 'error', text: err.message });
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  const handleApproveDraft = async (draftId) => {
+    setFeedbackMsg({ type: '', text: '' });
+    try {
+      const res = await apiFetch(`/drafts/${draftId}/approve`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Could not approve draft.');
+      }
+      setFeedbackMsg({
+        type: 'success',
+        text: `Draft #${draftId} approved by ${currentUser.username}. Ready for simulated dispatch.`,
+      });
+      fetchDisruptionDrafts();
+    } catch (err) {
+      setFeedbackMsg({ type: 'error', text: err.message });
+    }
+  };
+
+  const handleSendDraft = async (draftId) => {
+    setFeedbackMsg({ type: '', text: '' });
+    try {
+      const res = await apiFetch(`/drafts/${draftId}/send`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Could not send simulated draft.');
+      }
+      setFeedbackMsg({
+        type: 'success',
+        text: `Draft #${draftId} dispatched (simulated). Recorded in append-only audit trail.`,
+      });
+      fetchDisruptionDrafts();
+    } catch (err) {
+      setFeedbackMsg({ type: 'error', text: err.message });
+    }
+  };
 
   const fetchDetail = async () => {
     setLoading(true);
@@ -381,6 +465,14 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
           style={{ fontSize: '12px', padding: '4px 12px' }}
         >
           Impacted orders ({impacts.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('drafts')}
+          className={activeTab === 'drafts' ? 'btn-primary' : 'btn-secondary'}
+          style={{ fontSize: '12px', padding: '4px 12px' }}
+        >
+          Drafted messages ({disruptionDrafts.length})
         </button>
       </div>
 
@@ -947,6 +1039,248 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Tab 4: Drafted Messages */}
+      {activeTab === 'drafts' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Quick Draft Generator */}
+          <div className="desk-panel" style={{ padding: '16px 20px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '4px' }}>
+              Generate operational communication draft
+            </h3>
+            <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)', marginBottom: '14px' }}>
+              Drafts an email using verified disruption facts and recommended recovery plans. A second user must review &amp; approve before simulated dispatch.
+            </p>
+
+            <form onSubmit={handleCreateDraft} style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>
+                  Audience
+                </label>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', height: '32px' }}>
+                  <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="radio"
+                      name="tabDraftAudience"
+                      value="CUSTOMER"
+                      checked={draftAudience === 'CUSTOMER'}
+                      onChange={() => setDraftAudience('CUSTOMER')}
+                    />
+                    Customer
+                  </label>
+                  <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="radio"
+                      name="tabDraftAudience"
+                      value="SUPPLIER"
+                      checked={draftAudience === 'SUPPLIER'}
+                      onChange={() => setDraftAudience('SUPPLIER')}
+                    />
+                    Supplier
+                  </label>
+                </div>
+              </div>
+
+              {draftAudience === 'CUSTOMER' && impacts.length > 0 && (
+                <div style={{ minWidth: '220px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>
+                    Target affected order
+                  </label>
+                  <select
+                    value={draftOrderId || impacts[0]?.order_id}
+                    onChange={(e) => setDraftOrderId(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '32px',
+                      fontSize: '12px',
+                      padding: '4px 8px',
+                      border: '1px solid var(--color-line)',
+                      borderRadius: 'var(--radius-panel)',
+                    }}
+                  >
+                    {impacts.map((imp) => (
+                      <option key={imp.id || imp.order_id} value={imp.order_id}>
+                        {imp.order_code} - {imp.customer} ({imp.priority} risk)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <button
+                  type="submit"
+                  disabled={drafting}
+                  className="btn-primary"
+                  style={{ height: '32px', fontSize: '12px', padding: '0 16px' }}
+                >
+                  {drafting ? 'Generating draft...' : '+ Generate draft'}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Existing Drafts List */}
+          <div className="desk-panel" style={{ overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-line)' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600' }}>
+                Existing communication drafts for this disruption ({disruptionDrafts.length})
+              </h3>
+            </div>
+
+            {disruptionDrafts.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-muted-ink)', fontSize: '13px' }}>
+                No drafts generated yet for this disruption. Use the generator above to draft customer or supplier communications.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {disruptionDrafts.map((d) => {
+                  const isCreator = currentUser?.username === d.creator_username || currentUser?.id === d.created_by;
+                  const isExpanded = !!expandedDrafts[d.id];
+
+                  return (
+                    <div
+                      key={d.id}
+                      style={{
+                        padding: '14px 18px',
+                        borderBottom: '1px solid var(--color-line)',
+                        backgroundColor: d.status === 'SENT_SIMULATED' ? 'var(--color-panel)' : '#FFFFFF',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <span
+                              className={`severity-pill ${
+                                d.audience === 'CUSTOMER' ? 'severity-pill-medium' : 'severity-pill-low'
+                              }`}
+                              style={{ fontSize: '10px', padding: '1px 6px' }}
+                            >
+                              {d.audience}
+                            </span>
+                            <span
+                              className={`severity-pill ${
+                                d.status === 'SENT_SIMULATED'
+                                  ? 'severity-pill-low'
+                                  : d.status === 'APPROVED'
+                                  ? 'severity-pill-medium'
+                                  : 'severity-pill-high'
+                              }`}
+                              style={{ fontSize: '10px', padding: '1px 6px' }}
+                            >
+                              {d.status === 'SENT_SIMULATED' ? 'SENT (SIMULATED)' : d.status}
+                            </span>
+                            <span style={{ fontSize: '12px', fontWeight: '600' }}>
+                              Draft #{d.id}
+                            </span>
+                            {d.order_code && (
+                              <span style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+                                &middot; {d.order_code} ({d.customer})
+                              </span>
+                            )}
+                          </div>
+
+                          <div
+                            onClick={() => setExpandedDrafts(prev => ({ ...prev, [d.id]: !prev[d.id] }))}
+                            style={{ fontSize: '13px', fontWeight: '600', cursor: 'pointer', marginBottom: '2px' }}
+                          >
+                            {d.subject}
+                          </div>
+
+                          <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', display: 'flex', gap: '12px' }}>
+                            <span>Created by: <strong>{d.creator_username || `User #${d.created_by}`}</strong></span>
+                            {d.approved_by && (
+                              <span>Approved by: <strong>{d.approver_username || `User #${d.approved_by}`}</strong></span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button
+                            onClick={() => setExpandedDrafts(prev => ({ ...prev, [d.id]: !prev[d.id] }))}
+                            className="btn-subtle"
+                            style={{ fontSize: '11px', padding: '3px 8px' }}
+                          >
+                            {isExpanded ? 'Hide' : 'View'}
+                          </button>
+
+                          {d.status === 'DRAFT' && (
+                            <div>
+                              {isCreator ? (
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    color: 'var(--color-risk-high)',
+                                    backgroundColor: 'var(--color-risk-high-subtle)',
+                                    padding: '3px 8px',
+                                    borderRadius: 'var(--radius-panel)',
+                                    border: '1px solid var(--color-risk-high)',
+                                  }}
+                                  title="Rule 4: Creator cannot self-approve. Switch user to approve."
+                                >
+                                  Requires 2nd user approval
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => handleApproveDraft(d.id)}
+                                  className="btn-primary"
+                                  style={{ fontSize: '11px', padding: '3px 10px' }}
+                                >
+                                  Approve draft
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {d.status === 'APPROVED' && (
+                            <button
+                              onClick={() => handleSendDraft(d.id)}
+                              className="btn-primary"
+                              style={{
+                                fontSize: '11px',
+                                padding: '3px 12px',
+                                backgroundColor: 'var(--color-risk-low)',
+                                borderColor: 'var(--color-risk-low)',
+                              }}
+                            >
+                              &rarr; Send (Simulated)
+                            </button>
+                          )}
+
+                          {d.status === 'SENT_SIMULATED' && (
+                            <span style={{ fontSize: '11px', color: 'var(--color-risk-low)', fontWeight: '600' }}>
+                              &check; Dispatched (Simulated)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div
+                          style={{
+                            marginTop: '10px',
+                            padding: '10px 14px',
+                            backgroundColor: '#F8F9F8',
+                            borderRadius: 'var(--radius-panel)',
+                            border: '1px solid var(--color-line)',
+                            fontFamily: 'monospace',
+                            fontSize: '11px',
+                            whiteSpace: 'pre-wrap',
+                            lineHeight: '1.5',
+                          }}
+                        >
+                          {d.body}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

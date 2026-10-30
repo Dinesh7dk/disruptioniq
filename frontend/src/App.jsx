@@ -6,6 +6,7 @@ import DisruptionDetail from './DisruptionDetail';
 import AuditLogView from './AuditLogView';
 import NotificationsView from './NotificationsView';
 import LiveEventsFeed from './LiveEventsFeed';
+import DraftsView from './DraftsView';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -170,6 +171,22 @@ export default function App() {
 
             <button
               type="button"
+              onClick={() => setCurrentView('drafts')}
+              className={currentView === 'drafts' ? 'btn-primary' : 'btn-subtle'}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '8px 12px',
+                fontWeight: currentView === 'drafts' ? '600' : '400',
+                backgroundColor: currentView === 'drafts' ? 'var(--color-primary)' : 'transparent',
+                color: currentView === 'drafts' ? '#FFFFFF' : 'var(--color-ink)'
+              }}
+            >
+              Drafted messages
+            </button>
+
+            <button
+              type="button"
               onClick={() => setCurrentView('audit')}
               className={currentView === 'audit' ? 'btn-primary' : 'btn-subtle'}
               style={{
@@ -305,6 +322,13 @@ export default function App() {
             currentUser={currentUser}
             onBack={() => setCurrentView('orders')}
             onPlanProposed={loadAllData}
+          />
+        )}
+
+        {currentView === 'drafts' && (
+          <DraftsView
+            currentUser={currentUser}
+            onBack={() => setCurrentView('orders')}
           />
         )}
 

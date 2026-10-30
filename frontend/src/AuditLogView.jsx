@@ -47,6 +47,14 @@ export default function AuditLogView({ onBack, currentUser }) {
         return `${actor}${roleText} executed recovery plan #${log.entity_id} and reserved warehouse stock.`;
       case 'DISRUPTION_DETECTED':
         return `Automated tracking flagged disruption #${log.entity_id}.`;
+      case 'DRAFT_CREATED':
+        return `${actor}${roleText} generated communication draft #${log.entity_id}.`;
+      case 'DRAFT_APPROVED':
+        return `${actor}${roleText} approved communication draft #${log.entity_id} (peer review).`;
+      case 'DRAFT_SENT_SIMULATED':
+        return `${actor}${roleText} performed simulated dispatch of communication draft #${log.entity_id}.`;
+      case 'DRAFT_EDITED':
+        return `${actor}${roleText} updated communication draft #${log.entity_id}.`;
       default:
         return `${actor}${roleText} executed ${log.action.toLowerCase().replace(/_/g, ' ')} on ${log.entity_type} #${log.entity_id}.`;
     }
