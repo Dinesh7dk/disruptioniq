@@ -1,0 +1,51 @@
+[
+  {
+    "code": "O-IMP-001",
+    "customer": "Apex Diagnostics",
+    "priority": "HIGH",
+    "due_date": "2026-11-03",
+    "lines": [
+      {
+        "product_code": "P5",
+        "warehouse_code": "WH-CHN",
+        "quantity": 50
+      },
+      {
+        "product_code": "P6",
+        "warehouse_code": "WH-BLR",
+        "quantity": 30
+      }
+    ]
+  },
+  {
+    "code": "O-IMP-002",
+    "customer": "Prime Health",
+    "priority": "MEDIUM",
+    "due_date": "2026-11-07",
+    "lines": [
+      {
+        "product_code": "P7",
+        "warehouse_code": "WH-HYD",
+        "quantity": 20
+      }
+    ]
+  },
+  {
+    "code": "O-IMP-003",
+    "customer": "BlueCross Pharmacy",
+    "priority": "LOW",
+    "due_date": "2026-11-13",
+    "lines": [
+      {
+        "product_code": "P3",
+        "warehouse_code": "WH-CHN",
+        "quantity": 100
+      },
+      {
+        "product_code": "P8",
+        "warehouse_code": "WH-HYD",
+        "quantity": 200
+      }
+    ]
+  }
+]

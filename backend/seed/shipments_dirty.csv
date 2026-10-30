@@ -1,0 +1,6 @@
+ref,supplier_code,product_code,dest_city,quantity,expected_arrival
+SH-D01,SUP-B,P3,Chennai,-50,2026-11-04
+SH-D02,SUP-ZZZZ,P4,Bangalore,100,2026-11-06
+SH-D03,SUP-C,P5,Hyderabad,80,not-a-date
+SH-D04,SUP-D,P6,Chennai,60,2026-11-09
+SH-D04,SUP-D,P6,Chennai,60,2026-11-09

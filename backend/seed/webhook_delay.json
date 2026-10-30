@@ -1,0 +1,14 @@
+{
+  "event_id": "EVT-20240101-SH001",
+  "source": "SupplierA-Portal",
+  "event_type": "SHIPMENT_DELAYED",
+  "payload": {
+    "shipment_ref": "SH-001",
+    "supplier_code": "SUP-A",
+    "product_code": "P1",
+    "delay_days": 5,
+    "new_eta": "2026-11-06",
+    "reason": "Regulatory hold at origin port",
+    "notified_at": "2026-10-30T06:30:00Z"
+  }
+}
