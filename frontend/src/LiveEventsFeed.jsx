@@ -28,83 +28,74 @@ export default function LiveEventsFeed({ onBack }) {
   };
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button onClick={onBack} className="btn-secondary">
-          ← Back to Dashboard
+          Back to orders
         </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span className="kpi-label">Live Operational Event Stream</span>
-          <button onClick={fetchEvents} className="btn-secondary" style={{ padding: '4px 10px' }}>
-            Refresh Feed
-          </button>
-        </div>
+        <button onClick={fetchEvents} className="btn-secondary">
+          Refresh feed
+        </button>
       </div>
 
-      {error && (
-        <div style={{
-          padding: '10px 14px',
-          backgroundColor: 'var(--status-high-bg)',
-          border: '1px solid var(--status-high-border)',
-          borderRadius: '4px',
-          color: 'var(--status-high-text)',
-          fontSize: '12px'
-        }}>
-          {error}
+      <div className="desk-panel" style={{ overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-line)' }}>
+          <h1 style={{ fontSize: '18px', fontWeight: '700' }}>Live operational event stream</h1>
+          <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+            Real-time feed merging carrier webhook tracking updates and user plan authorizations.
+          </p>
         </div>
-      )}
 
-      <div className="surface" style={{ padding: '0', overflow: 'hidden' }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Timestamp</th>
-              <th>Channel</th>
-              <th>Event Title</th>
-              <th>Actor / Source</th>
-              <th>Payload / Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              [1, 2, 3, 4, 5].map((n) => (
-                <tr key={n}>
-                  <td colSpan="5"><div className="skeleton" style={{ height: '24px', width: '100%' }} /></td>
-                </tr>
-              ))
-            ) : events.length === 0 ? (
+        {error ? (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-risk-high)' }}>
+            {error}
+          </div>
+        ) : loading ? (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-muted-ink)' }}>
+            Loading events...
+          </div>
+        ) : events.length === 0 ? (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-muted-ink)' }}>
+            No operational events recorded yet.
+          </div>
+        ) : (
+          <table className="ops-table">
+            <thead>
               <tr>
-                <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
-                  No operational events recorded yet.
-                </td>
+                <th style={{ width: '150px' }}>Timestamp</th>
+                <th style={{ width: '90px' }}>Source</th>
+                <th>Event summary</th>
+                <th style={{ width: '120px' }}>Actor</th>
+                <th>Payload / details</th>
               </tr>
-            ) : (
-              events.map((ev, idx) => (
+            </thead>
+            <tbody>
+              {events.map((ev, idx) => (
                 <tr key={ev.id || idx}>
-                  <td className="mono" style={{ whiteSpace: 'nowrap', fontSize: '11px', color: 'var(--text-muted)' }}>
+                  <td className="num" style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
                     {ev.timestamp}
                   </td>
                   <td>
-                    <span className={`badge ${ev.category === 'webhook' ? 'badge-low' : 'badge-accent'}`}>
+                    <span className="severity-pill severity-pill-none">
                       {ev.category}
                     </span>
                   </td>
-                  <td style={{ fontWeight: '500', color: 'var(--text-primary)' }}>
+                  <td style={{ fontWeight: '500', color: 'var(--color-ink)' }}>
                     {ev.title}
                   </td>
                   <td>
-                    <span style={{ color: 'var(--text-secondary)' }}>{ev.actor}</span>
+                    <span style={{ color: 'var(--color-muted-ink)' }}>{ev.actor}</span>
                   </td>
-                  <td className="mono" style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '320px' }}>
+                  <td className="num" style={{ fontSize: '12px', color: 'var(--color-muted-ink)', maxWidth: '320px' }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {typeof ev.details === 'object' ? JSON.stringify(ev.details) : String(ev.details || '—')}
                     </div>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

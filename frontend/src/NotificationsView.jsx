@@ -32,81 +32,70 @@ export default function NotificationsView({ onBack }) {
   };
 
   return (
-    <div style={{ maxWidth: '850px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button onClick={onBack} className="btn-secondary">
-          ← Back to Dashboard
+          Back to orders
         </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span className="kpi-label">Notification Feed</span>
-          {notifications.length > 0 && (
-            <button onClick={handleMarkAllRead} className="btn-secondary" style={{ padding: '4px 10px' }}>
-              Mark All Read
-            </button>
-          )}
-        </div>
+        {notifications.length > 0 && (
+          <button onClick={handleMarkAllRead} className="btn-secondary">
+            Mark all read
+          </button>
+        )}
       </div>
 
-      {error && (
-        <div style={{
-          padding: '10px 14px',
-          backgroundColor: 'var(--status-high-bg)',
-          border: '1px solid var(--status-high-border)',
-          borderRadius: '4px',
-          color: 'var(--status-high-text)',
-          fontSize: '12px'
-        }}>
-          {error}
+      <div className="desk-panel" style={{ overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-line)' }}>
+          <h1 style={{ fontSize: '18px', fontWeight: '700' }}>System notifications</h1>
+          <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+            Real-time updates on carrier tracking, plan proposals, and approval requests.
+          </p>
         </div>
-      )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {loading ? (
-          [1, 2, 3].map((n) => <div key={n} className="skeleton" style={{ height: '70px', width: '100%' }} />)
+        {error ? (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-risk-high)' }}>
+            {error}
+          </div>
+        ) : loading ? (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-muted-ink)' }}>
+            Checking for updates...
+          </div>
         ) : notifications.length === 0 ? (
-          <div className="surface" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
-            No new notifications at this time.
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-muted-ink)' }}>
+            No new notifications.
           </div>
         ) : (
-          notifications.map((n) => (
-            <div
-              key={n.id}
-              className="surface"
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                gap: '12px',
-                padding: '12px 16px',
-                opacity: n.is_read ? 0.75 : 1
-              }}
-            >
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <span className={`badge ${n.type === 'APPROVAL' ? 'badge-accent' : 'badge-neutral'}`}>
-                    {n.type}
-                  </span>
-                  <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '13px' }}>
-                    {n.title}
-                  </span>
-                  {!n.is_read && (
-                    <span style={{
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      backgroundColor: '#3b82f6'
-                    }} />
-                  )}
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  {n.body}
-                </div>
-              </div>
-              <div className="mono" style={{ fontSize: '11px', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
-                {n.created_at}
-              </div>
-            </div>
-          ))
+          <table className="ops-table">
+            <thead>
+              <tr>
+                <th style={{ width: '130px' }}>Time</th>
+                <th style={{ width: '100px' }}>Category</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody>
+              {notifications.map((n) => (
+                <tr key={n.id} style={{ opacity: n.is_read ? 0.7 : 1 }}>
+                  <td className="num" style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+                    {n.created_at}
+                  </td>
+                  <td>
+                    <span className="severity-pill severity-pill-none">
+                      {n.type}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{ fontWeight: n.is_read ? '500' : '600', color: 'var(--color-ink)' }}>
+                      {n.title}
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'var(--color-muted-ink)', marginTop: '2px' }}>
+                      {n.body}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

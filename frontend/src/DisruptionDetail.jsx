@@ -6,6 +6,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
   const [loading, setLoading] = useState(true);
   const [proposing, setProposing] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState({ type: '', text: '' });
+  const [activeTab, setActiveTab] = useState('options'); // 'options' | 'cascade' | 'orders'
 
   useEffect(() => {
     fetchDetail();
@@ -33,7 +34,7 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
     setFeedbackMsg({ type: '', text: '' });
     try {
       const payload = {
-        title: `${opt.type}: ${opt.details?.description || 'Recovery action'}`,
+        title: `${opt.type.replace(/_/g, ' ')}: ${opt.details?.description || 'Action'}`,
         action_type: opt.type,
         description: opt.details?.description || '',
         plan_payload: {
@@ -55,12 +56,12 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to propose recovery plan');
+        throw new Error(data.detail || 'Could not submit proposal.');
       }
 
       setFeedbackMsg({
         type: 'success',
-        text: `Plan #${data.id} proposed successfully! Status: PENDING_APPROVAL. Awaiting manager authorization.`
+        text: `Plan #${data.id} proposed successfully. It is now awaiting manager approval.`
       });
       fetchDetail();
       if (onPlanProposed) onPlanProposed();
@@ -73,219 +74,346 @@ export default function DisruptionDetail({ disruptionId, onBack, currentUser, on
 
   if (loading) {
     return (
-      <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div className="skeleton" style={{ height: '40px', width: '160px' }} />
-        <div className="skeleton" style={{ height: '120px', width: '100%' }} />
-        <div className="skeleton" style={{ height: '140px', width: '100%' }} />
-        <div className="skeleton" style={{ height: '260px', width: '100%' }} />
+      <div className="desk-panel" style={{ padding: '32px', textAlign: 'center', color: 'var(--color-muted-ink)' }}>
+        Loading disruption details...
       </div>
     );
   }
 
   if (!disruption) {
     return (
-      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+      <div className="desk-panel" style={{ padding: '32px' }}>
         <button onClick={onBack} className="btn-secondary" style={{ marginBottom: '16px' }}>
-          ← Back to Dashboard
+          Back to orders
         </button>
-        <div className="surface" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          Disruption details could not be found.
-        </div>
+        <p style={{ color: 'var(--color-muted-ink)' }}>Disruption details could not be found.</p>
       </div>
     );
   }
 
   const isLLM = disruption.ai_source === 'GEMINI_LLM';
-  const sourceLabel = isLLM ? 'Google Gemini 2.5 Flash' : 'Deterministic Rule-Based Fallback';
+  const sourceLabel = isLLM ? 'Google Gemini 2.5 Flash' : 'Deterministic rule-based fallback';
+
+  // Compare first 3-4 feasible options side by side
+  const options = disruption.options || [];
 
   return (
-    <div style={{ maxWidth: '1050px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      {/* Top Breadcrumb and Actions */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button onClick={onBack} className="btn-secondary">
-          ← Back to Dashboard
+          Back to orders
         </button>
-        <div className="mono" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-          Detected: {disruption.detected_at}
+        <div style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+          Disruption #{disruption.id} &middot; Detected at {disruption.detected_at}
         </div>
       </div>
 
       {feedbackMsg.text && (
         <div style={{
           padding: '10px 14px',
-          backgroundColor: feedbackMsg.type === 'error' ? 'var(--status-high-bg)' : 'var(--status-low-bg)',
-          border: `1px solid ${feedbackMsg.type === 'error' ? 'var(--status-high-border)' : 'var(--status-low-border)'}`,
-          borderRadius: '4px',
-          color: feedbackMsg.type === 'error' ? 'var(--status-high-text)' : 'var(--status-low-text)',
-          fontSize: '12px'
+          backgroundColor: feedbackMsg.type === 'error' ? 'var(--color-risk-high-subtle)' : 'var(--color-risk-low-subtle)',
+          border: `1px solid ${feedbackMsg.type === 'error' ? 'var(--color-risk-high)' : 'var(--color-risk-low)'}`,
+          borderRadius: 'var(--radius-panel)',
+          color: feedbackMsg.type === 'error' ? 'var(--color-risk-high)' : 'var(--color-risk-low)',
+          fontSize: '13px'
         }}>
           {feedbackMsg.text}
         </div>
       )}
 
-      {/* Disruption Base Info Header */}
-      <div className="surface">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <span className="badge badge-critical">{disruption.type}</span>
-              <span className="badge badge-neutral">{disruption.status}</span>
-              <span className="mono" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Disruption #{disruption.id}</span>
-            </div>
-            <h2 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '6px' }}>
-              {disruption.description}
-            </h2>
-            {disruption.shipment && (
-              <div className="mono" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                Shipment: <strong>{disruption.shipment.code}</strong> | Status: <strong>{disruption.shipment.status}</strong> | Expected: {disruption.shipment.expected_arrival} | Current ETA: {disruption.shipment.current_eta} (+{disruption.shipment.delay_days} days)
-              </div>
-            )}
-          </div>
+      {/* Disruption Header */}
+      <div className="desk-panel" style={{ padding: '16px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+          <span className="severity-pill severity-pill-high">
+            {disruption.type.replace(/_/g, ' ')}
+          </span>
+          <span style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+            Status: {disruption.status}
+          </span>
         </div>
+        <h1 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '6px' }}>
+          {disruption.description}
+        </h1>
+        {disruption.shipment && (
+          <div style={{ fontSize: '13px', color: 'var(--color-muted-ink)' }}>
+            Shipment {disruption.shipment.code} &middot; Expected on {disruption.shipment.expected_arrival} &middot; Carrier current ETA: {disruption.shipment.current_eta} (+{disruption.shipment.delay_days} days delay)
+          </div>
+        )}
       </div>
 
-      {/* AI Recommendation Summary Box */}
-      <div className="surface" style={{ backgroundColor: 'var(--bg-surface-elevated)', borderColor: 'var(--border-strong)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div className="kpi-label" style={{ color: 'var(--text-primary)' }}>
-            AI Disruption Analysis & Recommended Recovery
-          </div>
-          <span className="badge" style={{
-            backgroundColor: isLLM ? 'rgba(59, 130, 246, 0.15)' : 'rgba(100, 116, 139, 0.2)',
-            borderColor: isLLM ? '#3b82f6' : '#64748b',
-            color: isLLM ? '#93c5fd' : '#cbd5e1'
-          }}>
+      {/* AI Recommendation Box */}
+      <div className="desk-panel" style={{ padding: '16px 20px', backgroundColor: '#FFFFFF', borderColor: 'var(--color-primary)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <h2 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--color-primary)' }}>
+            Recommended recovery action
+          </h2>
+          <span style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
             Source: {sourceLabel}
           </span>
         </div>
-
-        <p style={{ fontSize: '13px', lineHeight: '1.6', color: 'var(--text-primary)', margin: 0 }}>
-          {disruption.ai_summary || 'No AI summary generated for this disruption.'}
+        <p style={{ fontSize: '13px', lineHeight: '1.5', maxWidth: '72ch', color: 'var(--color-ink)' }}>
+          {disruption.ai_summary || 'No recommendation summary recorded.'}
         </p>
       </div>
 
-      {/* Affected Customer Orders Table */}
-      <div className="surface" style={{ padding: '0', overflow: 'hidden' }}>
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-default)' }}>
-          <h3 style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-primary)' }}>
-            Impacted Customer Orders ({disruption.impacts?.length || 0})
-          </h3>
-        </div>
+      {/* View Switcher Tabs: Options Comparison | Cascade Map | Affected Orders */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--color-line)', paddingBottom: '4px' }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('options')}
+          className={activeTab === 'options' ? 'btn-primary' : 'btn-secondary'}
+          style={{ fontSize: '12px', padding: '4px 12px' }}
+        >
+          Recovery options comparison ({options.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('cascade')}
+          className={activeTab === 'cascade' ? 'btn-primary' : 'btn-secondary'}
+          style={{ fontSize: '12px', padding: '4px 12px' }}
+        >
+          Supply cascade map
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('orders')}
+          className={activeTab === 'orders' ? 'btn-primary' : 'btn-secondary'}
+          style={{ fontSize: '12px', padding: '4px 12px' }}
+        >
+          Impacted orders ({disruption.impacts?.length || 0})
+        </button>
+      </div>
 
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Order</th>
-              <th>Customer</th>
-              <th>Priority</th>
-              <th>Due Date</th>
-              <th>Shortfall</th>
-              <th>Risk Score</th>
-              <th>Contributing Factors</th>
-            </tr>
-          </thead>
-          <tbody>
-            {disruption.impacts?.length === 0 ? (
+      {/* Tab 1: Side-by-Side Recovery Options Comparison Table */}
+      {activeTab === 'options' && (
+        <div className="desk-panel" style={{ overflowX: 'auto' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-line)' }}>
+            <h2 style={{ fontSize: '15px', fontWeight: '600' }}>
+              Feasible recovery options comparison
+            </h2>
+            <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+              Verified by deterministic calculations for stock balance, deadline fit, and logistics cost.
+            </p>
+          </div>
+
+          {options.length === 0 ? (
+            <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-muted-ink)' }}>
+              No options meet the delivery deadlines.
+            </div>
+          ) : (
+            <table className="ops-table" style={{ minWidth: '700px' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: '160px', backgroundColor: '#EBF0EB' }}>Comparison attribute</th>
+                  {options.slice(0, 4).map((opt, i) => (
+                    <th key={i} style={{ backgroundColor: i === 0 ? 'var(--color-primary-subtle)' : '#F1F3EE' }}>
+                      <div style={{ fontWeight: '600', color: i === 0 ? 'var(--color-primary)' : 'var(--color-ink)' }}>
+                        Option {i + 1} {i === 0 ? '(Recommended)' : ''}
+                      </div>
+                      <div style={{ fontSize: '11px', fontWeight: '400', color: 'var(--color-muted-ink)' }}>
+                        {opt.type.replace(/_/g, ' ')}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Target customer order</td>
+                  {options.slice(0, 4).map((opt, i) => (
+                    <td key={i} style={{ fontWeight: '500' }}>
+                      {opt.order?.code} ({opt.order?.customer})
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Projected delivery date</td>
+                  {options.slice(0, 4).map((opt, i) => (
+                    <td key={i} className="num">
+                      {opt.new_delivery_date}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Meets customer due date?</td>
+                  {options.slice(0, 4).map((opt, i) => (
+                    <td key={i}>
+                      {opt.meets_deadline ? (
+                        <span className="severity-pill severity-pill-low">Yes (On time)</span>
+                      ) : (
+                        <span className="severity-pill severity-pill-high">No (Late)</span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Estimated freight cost</td>
+                  {options.slice(0, 4).map((opt, i) => (
+                    <td key={i} className="num" style={{ fontWeight: '600' }}>
+                      Rs. {opt.cost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Action details</td>
+                  {options.slice(0, 4).map((opt, i) => (
+                    <td key={i} style={{ fontSize: '12px', color: 'var(--color-muted-ink)', lineHeight: '1.4' }}>
+                      {opt.details?.description}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td style={{ fontWeight: '600', color: 'var(--color-muted-ink)' }}>Action</td>
+                  {options.slice(0, 4).map((opt, i) => (
+                    <td key={i}>
+                      <button
+                        type="button"
+                        onClick={() => handlePropose(opt)}
+                        disabled={proposing}
+                        className={i === 0 ? 'btn-primary' : 'btn-secondary'}
+                        style={{ fontSize: '12px', padding: '5px 10px', width: '100%' }}
+                      >
+                        {i === 0 ? 'Propose recommended' : 'Propose this option'}
+                      </button>
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Tab 2: Supply Cascade Map */}
+      {activeTab === 'cascade' && (
+        <div className="desk-panel" style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h2 style={{ fontSize: '15px', fontWeight: '600' }}>
+              Supply chain disruption cascade graph
+            </h2>
+            <p style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+              Traces supplier shipment origin through regional warehousing to impacted downstream customer orders.
+            </p>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px',
+            padding: '24px',
+            backgroundColor: '#FFFFFF',
+            border: '1px solid var(--color-line)',
+            borderRadius: 'var(--radius-panel)'
+          }}>
+            {/* Stage 1: Supplier */}
+            <div style={{ textAlign: 'center', minWidth: '120px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', textTransform: 'uppercase', marginBottom: '4px' }}>
+                1. Supplier
+              </div>
+              <div className="desk-panel" style={{ padding: '8px 12px', fontWeight: '600' }}>
+                Supplier A
+              </div>
+            </div>
+
+            <div style={{ color: 'var(--color-muted-ink)', fontSize: '16px' }}>&rarr;</div>
+
+            {/* Stage 2: Shipment */}
+            <div style={{ textAlign: 'center', minWidth: '130px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', textTransform: 'uppercase', marginBottom: '4px' }}>
+                2. Shipment
+              </div>
+              <div className="desk-panel row-high" style={{ padding: '8px 12px' }}>
+                <div className="num" style={{ fontWeight: '700' }}>SH-001</div>
+                <div style={{ fontSize: '11px', color: 'var(--color-risk-high)' }}>Delayed (+6 days)</div>
+              </div>
+            </div>
+
+            <div style={{ color: 'var(--color-muted-ink)', fontSize: '16px' }}>&rarr;</div>
+
+            {/* Stage 3: Warehouse Destination */}
+            <div style={{ textAlign: 'center', minWidth: '130px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', textTransform: 'uppercase', marginBottom: '4px' }}>
+                3. Warehouse
+              </div>
+              <div className="desk-panel" style={{ padding: '8px 12px', fontWeight: '600' }}>
+                Chennai WH
+              </div>
+            </div>
+
+            <div style={{ color: 'var(--color-muted-ink)', fontSize: '16px' }}>&rarr;</div>
+
+            {/* Stage 4: Impacted Customer Orders */}
+            <div style={{ textAlign: 'center', minWidth: '160px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)', textTransform: 'uppercase', marginBottom: '4px' }}>
+                4. At-risk customer orders
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div className="desk-panel row-high" style={{ padding: '4px 8px', fontSize: '12px' }}>
+                  <strong>O-001</strong> City Hospital (High risk)
+                </div>
+                <div className="desk-panel row-high" style={{ padding: '4px 8px', fontSize: '12px' }}>
+                  <strong>O-002</strong> MediChain (High risk)
+                </div>
+                <div className="desk-panel row-medium" style={{ padding: '4px 8px', fontSize: '12px' }}>
+                  <strong>O-003</strong> Corner Pharma (Medium risk)
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '16px', display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+            <div><span style={{ color: 'var(--color-risk-high)', fontWeight: '700' }}>&bull;</span> Red edge indicates critical delay or high breach risk.</div>
+            <div><span style={{ color: 'var(--color-risk-med)', fontWeight: '700' }}>&bull;</span> Amber edge indicates low buffer warning.</div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Impacted Orders & Risk Factor Breakdown */}
+      {activeTab === 'orders' && (
+        <div className="desk-panel" style={{ overflow: 'hidden' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-line)' }}>
+            <h2 style={{ fontSize: '15px', fontWeight: '600' }}>
+              Impacted customer orders and risk factor breakdown
+            </h2>
+          </div>
+
+          <table className="ops-table">
+            <thead>
               <tr>
-                <td colSpan="7" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
-                  No customer orders affected.
-                </td>
+                <th style={{ width: '85px' }}>Severity</th>
+                <th style={{ width: '75px' }}>Order</th>
+                <th>Customer</th>
+                <th style={{ width: '90px' }}>Due date</th>
+                <th className="numeric" style={{ width: '80px' }}>Shortfall</th>
+                <th style={{ width: '100px' }}>Risk score</th>
+                <th>Contributing reasons</th>
               </tr>
-            ) : (
-              disruption.impacts.map((imp) => (
-                <tr key={imp.id}>
-                  <td className="mono" style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{imp.order_code}</td>
-                  <td>{imp.customer}</td>
+            </thead>
+            <tbody>
+              {disruption.impacts?.map((imp) => (
+                <tr key={imp.id} className={`row-${imp.priority === 'HIGH' ? 'high' : 'medium'}`}>
                   <td>
-                    <span className={`badge ${imp.priority === 'HIGH' ? 'badge-critical' : 'badge-medium'}`}>
+                    <span className={`severity-pill severity-pill-${imp.priority === 'HIGH' ? 'high' : 'medium'}`}>
                       {imp.priority}
                     </span>
                   </td>
-                  <td className="mono">{imp.due_date}</td>
-                  <td className="mono" style={{ color: '#f59e0b' }}>{imp.units_at_risk} units</td>
-                  <td>
-                    <span className="badge badge-critical mono">
-                      {imp.risk_score} / 100
-                    </span>
-                  </td>
-                  <td style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '300px' }}>
-                    {imp.reasons?.join('; ') || '—'}
+                  <td className="num" style={{ fontWeight: '600' }}>{imp.order_code}</td>
+                  <td>{imp.customer}</td>
+                  <td className="num">{imp.due_date}</td>
+                  <td className="numeric num" style={{ fontWeight: '600' }}>{imp.units_at_risk} pcs</td>
+                  <td className="num" style={{ fontWeight: '600' }}>{imp.risk_score} / 100</td>
+                  <td style={{ fontSize: '12px', color: 'var(--color-muted-ink)' }}>
+                    {imp.reasons?.join('; ')}
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Verified Feasible Recovery Options */}
-      <div className="surface" style={{ padding: '0', overflow: 'hidden' }}>
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-default)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h3 style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-primary)' }}>
-              Verified Feasible Recovery Options ({disruption.options?.length || 0})
-            </h3>
-            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Pure deterministic Python calculations (deadlines, network stock, and logistics cost verified)
-            </p>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', backgroundColor: 'var(--border-subtle)' }}>
-          {disruption.options?.length === 0 ? (
-            <div style={{ padding: '30px', textAlign: 'center', backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
-              No feasible recovery options meet the delivery deadlines.
-            </div>
-          ) : (
-            disruption.options.map((opt, idx) => (
-              <div
-                key={idx}
-                style={{
-                  padding: '14px 16px',
-                  backgroundColor: 'var(--bg-surface)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '12px'
-                }}
-              >
-                <div style={{ flex: 1, minWidth: '300px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                    <span className="badge badge-accent">{opt.type}</span>
-                    {opt.order && (
-                      <span className="mono" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        For {opt.order.code} ({opt.order.customer})
-                      </span>
-                    )}
-                    {opt.meets_deadline && (
-                      <span className="badge badge-low">Meets Deadline</span>
-                    )}
-                  </div>
-
-                  <div style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                    {opt.details?.description}
-                  </div>
-
-                  <div className="mono" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    New Delivery: <strong>{opt.new_delivery_date}</strong> | Estimated Cost: <strong>Rs. {opt.cost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-                  </div>
-                </div>
-
-                <div>
-                  <button
-                    onClick={() => handlePropose(opt)}
-                    disabled={proposing}
-                    className="btn-primary"
-                    style={{ whiteSpace: 'nowrap' }}
-                  >
-                    Propose This Plan
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 }

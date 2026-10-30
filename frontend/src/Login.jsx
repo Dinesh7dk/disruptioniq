@@ -8,11 +8,11 @@ export default function Login({ onLoginSuccess }) {
   const [loading, setLoading] = useState(false);
 
   const demoAccounts = [
-    { name: 'Anita', role: 'Operations Analyst', username: 'anita', pass: 'pass123', desc: 'Proposes recovery plans & evaluates disruptions' },
-    { name: 'Meera', role: 'Supply Chain Manager', username: 'meera', pass: 'pass123', desc: 'Approves stock reallocations, expedites & split shipments' },
-    { name: 'Ravi', role: 'Warehouse Operator', username: 'ravi', pass: 'pass123', desc: 'Executes approved plans with stock reservation' },
-    { name: 'Priya', role: 'Procurement Approver', username: 'priya', pass: 'pass123', desc: 'Approves emergency alternative supplier contracts' },
-    { name: 'Admin', role: 'Administrator', username: 'admin', pass: 'admin123', desc: 'System governance, user roles & audit access' },
+    { name: 'Anita', role: 'Operations Analyst', username: 'anita', pass: 'pass123', duty: 'Proposes recovery plans and logs impact' },
+    { name: 'Meera', role: 'Supply Chain Manager', username: 'meera', pass: 'pass123', duty: 'Authorizes reallocations, expediting, and splits' },
+    { name: 'Ravi', role: 'Warehouse Operator', username: 'ravi', pass: 'pass123', duty: 'Executes approved plans and reserves stock' },
+    { name: 'Priya', role: 'Procurement Approver', username: 'priya', pass: 'pass123', duty: 'Authorizes alternative supplier procurement' },
+    { name: 'Admin', role: 'Administrator', username: 'admin', pass: 'admin123', duty: 'System configuration, data imports, and audit log' },
   ];
 
   const handleSubmit = async (e) => {
@@ -28,7 +28,7 @@ export default function Login({ onLoginSuccess }) {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || 'Authentication failed. Please verify credentials.');
+        throw new Error(data.detail || 'The username or password was not recognized. Please check your credentials.');
       }
 
       const data = await res.json();
@@ -54,63 +54,55 @@ export default function Login({ onLoginSuccess }) {
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '24px 16px',
-      backgroundColor: 'var(--bg-canvas)'
+      padding: 'var(--space-6)',
+      backgroundColor: 'var(--color-paper)'
     }}>
-      <div style={{ width: '100%', maxWidth: '440px', marginBottom: '24px', textAlign: 'center' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-          <div style={{
-            width: '10px',
-            height: '10px',
-            borderRadius: '2px',
-            backgroundColor: '#2563eb'
-          }} />
-          <span className="mono" style={{ fontSize: '18px', fontWeight: '700', letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-            DISRUPTION<span style={{ color: '#3b82f6' }}>IQ</span>
-          </span>
-        </div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-          Autonomous Logistics Disruption Detection & Recovery Platform
+      <div style={{ width: '100%', maxWidth: '420px', marginBottom: 'var(--space-5)' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: 'var(--space-1)', color: 'var(--color-ink)' }}>
+          DisruptionIQ
+        </h1>
+        <p style={{ color: 'var(--color-muted-ink)', fontSize: '13px' }}>
+          Operations console for supply disruption recovery
         </p>
       </div>
 
-      <div className="surface" style={{ width: '100%', maxWidth: '440px', padding: '24px' }}>
-        <div style={{ marginBottom: '18px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '14px' }}>
-          <h2 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>Sign In to Control Console</h2>
-          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-            Role-enforced authentication with in-memory session protection.
-          </p>
-        </div>
+      <div className="desk-panel" style={{ width: '100%', maxWidth: '420px', padding: 'var(--space-6)' }}>
+        <h2 style={{ fontSize: '16px', fontWeight: '600', marginBottom: 'var(--space-3)' }}>
+          Sign in
+        </h2>
 
         {error && (
           <div style={{
-            padding: '10px 12px',
-            backgroundColor: 'var(--status-high-bg)',
-            border: '1px solid var(--status-high-border)',
-            borderRadius: '4px',
-            color: 'var(--status-high-text)',
-            marginBottom: '16px',
-            fontSize: '12px'
+            padding: '8px 12px',
+            backgroundColor: 'var(--color-risk-high-subtle)',
+            border: '1px solid var(--color-risk-high)',
+            borderRadius: 'var(--radius-input)',
+            color: 'var(--color-risk-high)',
+            marginBottom: 'var(--space-4)',
+            fontSize: '13px'
           }}>
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div>
-            <label className="kpi-label" style={{ display: 'block', marginBottom: '6px' }}>Username or Email</label>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: 'var(--color-muted-ink)', marginBottom: '4px' }}>
+              Username or email address
+            </label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
               style={{ width: '100%' }}
-              placeholder="e.g. anita, meera, ravi"
             />
           </div>
 
           <div>
-            <label className="kpi-label" style={{ display: 'block', marginBottom: '6px' }}>Password</label>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: 'var(--color-muted-ink)', marginBottom: '4px' }}>
+              Password
+            </label>
             <input
               type="password"
               value={password}
@@ -124,45 +116,44 @@ export default function Login({ onLoginSuccess }) {
             type="submit"
             disabled={loading}
             className="btn-primary"
-            style={{ width: '100%', padding: '9px', fontSize: '13px', marginTop: '6px' }}
+            style={{ width: '100%', padding: '8px', fontSize: '13px', marginTop: 'var(--space-2)' }}
           >
-            {loading ? 'Authenticating...' : 'Sign In'}
+            {loading ? 'Checking credentials...' : 'Sign in to console'}
           </button>
         </form>
 
-        {/* Demo Persona Quick Fill */}
-        <div style={{ marginTop: '22px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
-          <div className="kpi-label" style={{ marginBottom: '10px' }}>Select Demo Persona:</div>
+        <div style={{ marginTop: 'var(--space-6)', paddingTop: 'var(--space-4)', borderTop: '1px solid var(--color-line)' }}>
+          <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--color-muted-ink)', marginBottom: 'var(--space-2)' }}>
+            Demo roles
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {demoAccounts.map((acc) => (
-              <div
+              <button
                 key={acc.username}
+                type="button"
                 onClick={() => handleSelectDemo(acc)}
+                className="btn-secondary"
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '7px 10px',
-                  backgroundColor: username === acc.username ? 'var(--bg-surface-elevated)' : 'var(--bg-surface-subtle)',
-                  border: username === acc.username ? '1px solid var(--border-focus)' : '1px solid var(--border-subtle)',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  transition: 'border-color 0.15s ease'
+                  alignItems: 'center',
+                  padding: '6px 10px',
+                  textAlign: 'left',
+                  backgroundColor: username === acc.username ? 'var(--color-primary-subtle)' : '#FFFFFF',
+                  borderColor: username === acc.username ? 'var(--color-primary)' : 'var(--color-line)'
                 }}
               >
                 <div>
-                  <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '12px' }}>{acc.name}</span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '11px', marginLeft: '6px' }}>({acc.role})</span>
+                  <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--color-ink)' }}>
+                    {acc.name} <span style={{ fontWeight: '400', color: 'var(--color-muted-ink)', fontSize: '12px' }}>({acc.role})</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-muted-ink)' }}>{acc.duty}</div>
                 </div>
-                <span className="mono" style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{acc.username}</span>
-              </div>
+                <span className="mono" style={{ fontSize: '12px', color: 'var(--color-primary)' }}>Select</span>
+              </button>
             ))}
           </div>
         </div>
-      </div>
-
-      <div style={{ marginTop: '20px', fontSize: '11px', color: 'var(--text-dim)', textAlign: 'center' }}>
-        Protected by ISO-compliant audit logging & deterministic separation of duties.
       </div>
     </div>
   );
