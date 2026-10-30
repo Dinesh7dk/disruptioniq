@@ -29,6 +29,22 @@ from backend.services.import_service import (
 from backend.db import get_conn
 from backend.services.detection import run_detection
 from backend.services.recovery import generate_options
+from backend.services.approval import (
+    propose_plan,
+    approve_plan,
+    reject_plan,
+    modify_plan,
+    execute_plan,
+)
+from backend.services.monitoring import (
+    get_dashboard_summary,
+    get_all_disruptions,
+    get_disruption_by_id,
+    get_orders,
+    get_notifications,
+    get_audit_logs,
+    get_recent_events,
+)
 from pydantic import Field
 
 # ── App setup ──────────────────────────────────────────────────────────────────
@@ -47,9 +63,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],       # tighten for production
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -81,6 +105,24 @@ class CarrierWebhookRequest(BaseModel):
     shipment_ref: str = Field(..., min_length=1)
     status: str = Field(..., min_length=1)
     new_eta: str = Field(..., min_length=1)
+
+
+class ProposePlanRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    action_type: str = Field(..., min_length=1)
+    description: str = ""
+    plan_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class DecisionRequest(BaseModel):
+    note: str | None = None
+
+
+class ModifyPlanRequest(BaseModel):
+    new_quantity: int | None = None
+    new_option_details: dict[str, Any] | None = None
+    note: str | None = None
+
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -242,6 +284,24 @@ def carrier_webhook(event: CarrierWebhookRequest):
 
 # ── Disruption endpoints ──────────────────────────────────────────────────────
 
+@app.get("/disruptions", tags=["disruptions"])
+def list_disruptions(user: dict = Depends(get_current_user)):
+    """List all disruptions with status, shipment/warehouse/product details, and impact stats."""
+    return get_all_disruptions()
+
+
+@app.get("/disruptions/{id}", tags=["disruptions"])
+def get_disruption(id: int, user: dict = Depends(get_current_user)):
+    """Disruption details: impacts, reasons, breakdowns, options, AI summary and its source."""
+    disruption = get_disruption_by_id(id)
+    if disruption is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Disruption {id} not found.",
+        )
+    return disruption
+
+
 @app.get("/disruptions/{id}/options", tags=["disruptions"])
 def get_disruption_options(
     id: int,
@@ -254,6 +314,115 @@ def get_disruption_options(
     """
     options = generate_options(disruption_id=id, order_id=order_id)
     return {"disruption_id": id, "options_count": len(options), "options": options}
+
+
+# ── Recovery Plan Approval & Execution Endpoints ──────────────────────────────
+
+@app.post("/disruptions/{id}/plans", tags=["plans"])
+def propose_disruption_plan(
+    id: int,
+    body: ProposePlanRequest,
+    user: dict = Depends(require_role("Operations Analyst", "Administrator")),
+):
+    """Propose a recovery plan for a disruption (Operations Analyst role)."""
+    return propose_plan(
+        disruption_id=id,
+        title=body.title,
+        action_type=body.action_type,
+        description=body.description,
+        plan_payload=body.plan_payload,
+        actor=user,
+    )
+
+
+@app.post("/plans/{id}/approve", tags=["plans"])
+def approve_recovery_plan(
+    id: int,
+    body: DecisionRequest = DecisionRequest(),
+    user: dict = Depends(
+        require_role("Supply Chain Manager", "Procurement Approver", "Administrator")
+    ),
+):
+    """Approve a recovery plan (approver must not be the proposer)."""
+    return approve_plan(plan_id=id, note=body.note, actor=user)
+
+
+@app.post("/plans/{id}/reject", tags=["plans"])
+def reject_recovery_plan(
+    id: int,
+    body: DecisionRequest = DecisionRequest(),
+    user: dict = Depends(
+        require_role("Supply Chain Manager", "Procurement Approver", "Administrator")
+    ),
+):
+    """Reject a recovery plan."""
+    return reject_plan(plan_id=id, note=body.note, actor=user)
+
+
+@app.post("/plans/{id}/modify", tags=["plans"])
+def modify_recovery_plan(
+    id: int,
+    body: ModifyPlanRequest,
+    user: dict = Depends(
+        require_role("Supply Chain Manager", "Procurement Approver", "Administrator")
+    ),
+):
+    """Modify plan parameters and return it to PENDING_APPROVAL."""
+    return modify_plan(
+        plan_id=id,
+        new_quantity=body.new_quantity,
+        new_option_details=body.new_option_details,
+        note=body.note,
+        actor=user,
+    )
+
+
+@app.post("/plans/{id}/execute", tags=["plans"])
+def execute_recovery_plan(
+    id: int,
+    user: dict = Depends(require_role("Warehouse Operator", "Administrator")),
+):
+    """Execute an APPROVED plan with stock revalidation and optimistic locking."""
+    return execute_plan(plan_id=id, actor=user)
+
+
+# ── Orders endpoints ───────────────────────────────────────────────────────────
+
+@app.get("/orders", tags=["orders"])
+def list_orders(sort: str | None = "risk", user: dict = Depends(get_current_user)):
+    """List orders, optionally sorted by risk score descending (sort=risk)."""
+    return get_orders(sort_by=sort or "risk")
+
+
+# ── Dashboard & Monitoring Endpoints ──────────────────────────────────────────
+
+@app.get("/dashboard/summary", tags=["dashboard"])
+def dashboard_summary(user: dict = Depends(get_current_user)):
+    """Counts of active disruptions, affected orders, pending approvals, executed plans."""
+    return get_dashboard_summary()
+
+
+@app.get("/notifications", tags=["notifications"])
+def list_notifications(limit: int = 50, user: dict = Depends(get_current_user)):
+    """In-app notifications for the authenticated user/role."""
+    return get_notifications(user_id=int(user["sub"]), role=user["role"], limit=limit)
+
+
+@app.get("/audit", tags=["audit"])
+def list_audit_logs(
+    limit: int = 100,
+    user: dict = Depends(require_role("Administrator", "Supply Chain Manager")),
+):
+    """Append-only audit logs. Restricted to Administrator and Supply Chain Manager."""
+    return get_audit_logs(limit=limit)
+
+
+@app.get("/events/recent", tags=["events"])
+def list_recent_events(limit: int = 50, user: dict = Depends(get_current_user)):
+    """Last 50 audit and webhook events combined for a live feed."""
+    return get_recent_events(limit=limit)
+
+
 
 
 

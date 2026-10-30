@@ -53,13 +53,16 @@ def seed(db_path: Path = DB_PATH):
 
     # ── 2. USERS ───────────────────────────────────────────────────────────
     users = [
-        # username, email, password, role
         ("alice",   "alice@diq.local",   "pass123",  "Operations Analyst"),
         ("bob",     "bob@diq.local",     "pass123",  "Operations Analyst"),
         ("carol",   "carol@diq.local",   "pass123",  "Supply Chain Manager"),
         ("dave",    "dave@diq.local",    "pass123",  "Warehouse Operator"),
         ("eve",     "eve@diq.local",     "pass123",  "Procurement Approver"),
         ("admin",   "admin@diq.local",   "admin123", "Administrator"),
+        ("anita",   "anita@diq.local",   "pass123",  "Operations Analyst"),
+        ("meera",   "meera@diq.local",   "pass123",  "Supply Chain Manager"),
+        ("ravi",    "ravi@diq.local",    "pass123",  "Warehouse Operator"),
+        ("priya",   "priya@diq.local",   "pass123",  "Procurement Approver"),
     ]
     for u in users:
         conn.execute(

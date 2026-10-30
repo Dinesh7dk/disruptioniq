@@ -161,11 +161,13 @@ CREATE TABLE IF NOT EXISTS recovery_plans (
     disruption_id   INTEGER NOT NULL REFERENCES disruptions(id) ON DELETE CASCADE,
     title           TEXT    NOT NULL,
     description     TEXT,
+    plan_payload    TEXT,
     action_type     TEXT    NOT NULL CHECK(action_type IN (
                         'REROUTE_SHIPMENT',
                         'REALLOCATE_STOCK',
                         'EXPEDITE_ORDER',
                         'PARTIAL_FULFIL',
+                        'ALTERNATIVE_SUPPLIER',
                         'CANCEL_ORDER',
                         'OTHER'
                     )),

@@ -118,8 +118,8 @@ def authenticate_user(username: str, password: str) -> dict:
     try:
         row = conn.execute(
             "SELECT id, username, email, password_hash, role, is_active "
-            "FROM users WHERE username = ?",
-            (username,),
+            "FROM users WHERE username = ? OR email = ?",
+            (username, username),
         ).fetchone()
     finally:
         conn.close()
